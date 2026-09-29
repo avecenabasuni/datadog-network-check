@@ -22,12 +22,12 @@ Passing the first DOES NOT prove the second.
 From a writable directory on the Linux VM, paste this single command:
 
 ```bash
-bash -c 'unset SSLKEYLOGFILE; code=$(curl --disable -fsSL --proto "=https" --proto-redir "=https" --connect-timeout 10 --max-time 60 --max-filesize 100000 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh) && [ -n "$code" ] || exit 3; exec bash -c "$code" -- "$@"'
+bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh) || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
 ```
 
 Select a Datadog site when prompted; the **entire scan** runs automatically. The generated single-file distribution includes every runtime module and both manifests. No clone, unpacking, package installation, API key, or product selection is needed. Runtime requirements remain Bash 4+, curl and the standard Linux utilities listed below; Python and Git are not required on the customer VM.
 
-The download completes successfully before execution begins. HTTPS certificate verification remains enabled, redirects are restricted to HTTPS, timeouts bound the download, and curlrc is disabled. Download failures or empty responses exit 3 without starting a scan. Standard input stays connected to the terminal for site selection. Existing proxy settings are honored; only TLS debug-secret logging is suppressed in the child shell.
+The download completes successfully before execution begins. The compact `-qfsSm60` options disable curlrc, reject HTTP download errors, show errors without a progress meter, and cap the entire transfer at 60 seconds. The URL is HTTPS with certificate verification enabled; redirects are not followed. Download failures or empty responses exit 3 without starting a scan. Standard input stays connected to the terminal for site selection. Existing proxy settings are honored; TLS debug-secret logging is suppressed for the download process.
 
 **Reports are saved in `./reports/` under the directory where you run the command**, even if no repository checkout exists. The downloaded program and embedded manifests stay in memory; no installation or temporary extraction directory is created. Generated TXT/JSON files and exit codes are the same as local execution.
 

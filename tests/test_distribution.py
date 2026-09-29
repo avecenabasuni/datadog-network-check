@@ -7,7 +7,7 @@ import test_checker
 
 ROOT = test_checker.ROOT
 COMMAND = next(line for line in (ROOT / 'README.md').read_text().splitlines()
-               if line.startswith("bash -c 'unset SSLKEYLOGFILE;"))
+               if line.startswith("bash -c 's=$(SSLKEYLOGFILE= curl "))
 
 
 class DistributionTests(unittest.TestCase):
@@ -51,7 +51,7 @@ class DistributionTests(unittest.TestCase):
     def test_downloader_flags_and_input_and_argument_forwarding(self):
         self.env['SSLKEYLOGFILE'] = str(self.root / 'must-not-exist')
         self.write_command('curl', r'''
-[[ -z ${SSLKEYLOGFILE-} && $1 == --disable ]] || exit 99
+[[ -z ${SSLKEYLOGFILE-} && $1 == -qfsSm60 ]] || exit 99
 printf '%s\n' "$*" > "$MOCK_LOG"
 cat <<'PAYLOAD'
 IFS= read -r choice
@@ -63,10 +63,11 @@ PAYLOAD
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.strip(), 'selection=5 arguments=--site,us5')
         args = (self.root / 'calls').read_text()
-        for expected in ['--disable -fsSL', '--proto =https', '--proto-redir =https',
-                         '--connect-timeout 10', '--max-time 60', '--max-filesize 100000',
+        for expected in ['-qfsSm60',
                          '/main/dist/dd-network-check.sh']:
             self.assertIn(expected, args)
+        self.assertNotIn('-L', args)
+        self.assertNotIn('--location', args)
         self.assertFalse((self.root / 'must-not-exist').exists())
 
     def test_full_interactive_bundle_without_checkout(self):
