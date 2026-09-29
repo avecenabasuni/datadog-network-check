@@ -17,7 +17,25 @@ Datadog endpoints                     Datadog RUM intake
 Passing the first DOES NOT prove the second.
 ```
 
-## Run
+## Run with one command (recommended)
+
+From a writable directory on the Linux VM, paste this single command:
+
+```bash
+bash -c 'unset SSLKEYLOGFILE; code=$(curl --disable -fsSL --proto "=https" --proto-redir "=https" --connect-timeout 10 --max-time 60 --max-filesize 100000 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh) && [ -n "$code" ] || exit 3; exec bash -c "$code" -- "$@"'
+```
+
+Select a Datadog site when prompted; the **entire scan** runs automatically. The generated single-file distribution includes every runtime module and both manifests. No clone, unpacking, package installation, API key, or product selection is needed. Runtime requirements remain Bash 4+, curl and the standard Linux utilities listed below; Python and Git are not required on the customer VM.
+
+The download completes successfully before execution begins. HTTPS certificate verification remains enabled, redirects are restricted to HTTPS, timeouts bound the download, and curlrc is disabled. Download failures or empty responses exit 3 without starting a scan. Standard input stays connected to the terminal for site selection. Existing proxy settings are honored; only TLS debug-secret logging is suppressed in the child shell.
+
+**Reports are saved in `./reports/` under the directory where you run the command**, even if no repository checkout exists. The downloaded program and embedded manifests stay in memory; no installation or temporary extraction directory is created. Generated TXT/JSON files and exit codes are the same as local execution.
+
+The URL above runs the current `main` version and requires outbound access to `raw.githubusercontent.com` in addition to the Datadog destinations being tested. For a reviewed immutable version, replace `main` in the URL with a full Git commit SHA from this repository. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
+
+For unattended execution, append `-- --site us1` after the closing quote of the one-command invocation. With no arguments, interactive selection remains the default. See [distribution design and tests](docs/DISTRIBUTION.md).
+
+## Run from a local checkout
 
 Use a Linux VM with Bash 4+ and curl. Keep the project directories together, make the entry point executable if your distribution method did not preserve its mode, then run:
 
@@ -60,6 +78,8 @@ docs/ENDPOINTS.md            Source review, exclusions and maintenance process
 docs/TESTING.md              Test strategy and live validation instructions
 tests/                      Offline regression suite and opt-in live smoke tests
 reports/                    Generated reports; ignored by Git
+dist/dd-network-check.sh     Generated standalone distribution (committed)
+scripts/build_standalone.py  Maintainer-only deterministic bundle builder
 ```
 
 ## What is checked

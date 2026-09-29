@@ -2,6 +2,8 @@
 
 The checker runtime needs no Python. The regression suite uses Python 3's standard-library `unittest` to invoke Bash and inspect JSON. It writes isolated fixtures only below `reports/`, removes its own fixtures, and makes no network calls.
 
+The suite also checks that the generated standalone bundle matches its source files, then tests the exact README one-command invocation with a mock downloader. It covers rejected partial/empty downloads, preserved input and exit codes, argument forwarding, and a complete interactive scan from a directory without a checkout. See [distribution design](DISTRIBUTION.md).
+
 ```bash
 bash tests/run.sh
 ```

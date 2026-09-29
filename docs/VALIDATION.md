@@ -32,3 +32,7 @@ Overall: READY WITH WARNINGS
 ```
 
 The full scan exposed binary NUL bytes in one registry response. The final implementation filters NULs from bounded in-memory capture, and the final regression suite includes that case. No raw response bodies are persisted.
+
+## One-command distribution follow-up
+
+The expanded suite passed **41 tests**, including a complete 59-record interactive standalone scan from a directory without `config/` or `lib/`. Only the report directory was created there. Tests also verified that failed/partial/empty downloads do not execute, terminal input and arguments are preserved, checker exit codes propagate, and the generated bundle matches its source modules and manifests. The standalone bundle passed Bash syntax validation. ShellCheck remained unavailable.
