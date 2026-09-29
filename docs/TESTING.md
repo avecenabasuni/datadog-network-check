@@ -18,6 +18,8 @@ Coverage includes all site/template combinations; malformed and executable-looki
 
 Shell functions (`have`, `tcp_connect`, `tls_probe`, `curl_probe`) provide narrow test seams. Integration fixtures replace executables through PATH, so production code has no undocumented test-mode environment variable or alternate manifest bypass. Regression reports are parsed with Python JSON and checked for ANSI escape codes. Python is invoked with `-B` to avoid writes outside the report directory.
 
+Terminal presentation tests check that an interactive run shows one compact endpoint row while the TXT report retains the detailed probe records. They also check actionable failure text, plain output when redirected, ANSI colors when stdout is a TTY, and `NO_COLOR` suppression. The summary's readiness counts are still validated against JSON.
+
 `tests/run.sh` runs ShellCheck when available and clearly reports when it is absent. It never installs packages. Bash syntax can also be checked with:
 
 ```bash

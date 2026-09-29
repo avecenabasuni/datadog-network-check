@@ -95,3 +95,11 @@ HTTP             PASS - origin HTTP 307
 Redirect follow  PASS - same hostname, HTTP 200; response sampling capped
 Endpoint impact  PASS
 ```
+
+## v0.1.3 terminal presentation
+
+The terminal now renders one status line per applicable endpoint, with compact DNS/TCP/TLS/HTTP evidence and short reasons below WARN or FAIL results. Wildcard/manual requirements appear as REVIEW, and RUM sanity checks carry a `[VM only]` label. Category readiness, direct PASS/WARN/FAIL counts, blockers, remaining manual requirements and report paths remain visible at the end. The detailed TXT and JSON contents and readiness rules are unchanged.
+
+A full US1 scan with the v0.1.3 standalone artifact completed with **39 direct PASS, 7 direct WARN, 0 direct FAIL** and **READY WITH WARNINGS** from the development VM. Its compact console output was checked against the 59-entry schema 1.2 JSON report and full TXT report. The terminal had no ANSI codes when redirected; TXT and JSON were also ANSI-free. Report base: `reports/dd-network-preflight-MSI-20260929-132831-9O47t3Hh`. Later display-only adjustments shortened status spacing, clarified redirect destinations and explicitly labeled VM-side RUM checks; focused tests cover those final renderings. This scan is not evidence about the customer VM.
+
+All **73 regression tests passed**. The suite includes checks for interactive compact rows, detailed TXT retention, a visible HTTP timeout reason, unavailable OpenSSL diagnostics, RUM's VM-only limit, terminal-only ANSI color, `NO_COLOR` suppression and the standalone one-command scan. ShellCheck was unavailable and was not installed. Context7's official [Bash conditional expressions](https://www.gnu.org/software/bash/manual/html_node/Bash-Conditional-Expressions.html) and [`printf` builtin](https://www.gnu.org/software/bash/manual/html_node/Bash-Builtins.html) documentation were consulted for terminal detection and formatted output.

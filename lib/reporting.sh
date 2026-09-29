@@ -1,11 +1,84 @@
 #!/usr/bin/env bash
 emit() {
-    local line=${1-} color=''
-    printf '%s\n' "$line" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
-    if [[ -t 1 && -z ${NO_COLOR-} ]]; then
-        case $line in *FAIL*|*BLOCKED*) color=$'\033[31m';; *WARN*|*SKIPPED*|*'NOT DIRECTLY TESTABLE'*) color=$'\033[33m';; *PASS*|READY) color=$'\033[32m';; esac
-        printf '%s%s\033[0m\n' "$color" "$line"
-    else printf '%s\n' "$line"; fi
+    printf '%s\n' "${1-}" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
+}
+terminal_status() {
+    local status=$1 label=$2 color=''
+    if [[ -t 1 && -z ${NO_COLOR-} && ${TERM-} != dumb ]]; then
+        case $status in
+            PASS|READY) color=$'\033[32m';;
+            WARN|REVIEW|'READY WITH WARNINGS') color=$'\033[33m';;
+            FAIL|BLOCKED) color=$'\033[31m';;
+            'N/A') color=$'\033[90m';;
+        esac
+    fi
+    if [[ -n $color ]]; then
+        printf '  %s%-8s\033[0m %s\n' "$color" "$status" "$label"
+    else
+        printf '  %-8s %s\n' "$status" "$label"
+    fi
+}
+terminal_section() {
+    local title=${1//_/ }
+    printf '\n%s\n' "${title^^}"
+    printf '%s\n' '----------------------------------------'
+}
+terminal_intro() {
+    local available=$1 unavailable=$2
+    printf '\n========================================\n'
+    printf ' DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
+    printf '========================================\n'
+    printf 'Host  %s\nOS    %s\nSite  %s (%s)\n' "$MACHINE" "$OS_NAME" "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
+    printf 'Tools available: %s\n' "${available:-none}"
+    [[ -z $unavailable ]] || printf 'Tools unavailable: %s\n' "$unavailable"
+    if ((PROXY_PRESENT)); then printf 'Proxy environment: configured (values withheld)\n'
+    else printf 'Proxy environment: not configured\n'; fi
+    printf 'Agent version: %s\n' "${AGENT_VERSION:-not determined}"
+    printf 'Scan: all documented destinations; detailed TXT/JSON reports follow.\n'
+}
+terminal_stage() {
+    case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
+}
+terminal_endpoint() {
+    local state hint field detail http_display
+    [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
+    if [[ $LAST_TERMINAL_CATEGORY != "$category" ]]; then
+        terminal_section "$category"
+        LAST_TERMINAL_CATEGORY=$category
+    fi
+    if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
+        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='wildcard allowlist'
+        elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
+        else hint='manual target'; fi
+        terminal_status REVIEW "${E[hostname]}  ($hint)"
+        return 0
+    fi
+    state=${E[impact]}
+    http_display=${E[http_status]:-${E[http]}}
+    if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        http_display+=">${E[redirect_http_status]:-${E[redirect_http]}}"
+    fi
+    hint="DNS $(terminal_stage "${E[dns]}")  TCP $(terminal_stage "${E[tcp]}")  TLS $(terminal_stage "${E[tls]}")  HTTP $http_display"
+    [[ ${E[classification]} != 'SERVER-SIDE SANITY CHECK ONLY' ]] || hint+='  [VM only]'
+    terminal_status "$state" "${E[hostname]}  $hint"
+    [[ $state != PASS ]] || return 0
+    for field in dns cname tcp tls http; do
+        [[ ${E[$field]} == PASS ]] && continue
+        detail=${E[${field}_detail]}
+        if [[ $field == http && ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+            if [[ ${E[redirect_http]} == PASS ]]; then
+                detail="redirected to ${E[redirect_final_url]}; review destination allowlist"
+            else
+                detail="redirect follow-up ${E[redirect_http]}: ${E[redirect_http_detail]} (${E[redirect_final_url]})"
+            fi
+        fi
+        printf '       %s: %s\n' "${field^^}" "$detail"
+    done
+    if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
+        printf '       Possible security filtering; review the TXT report.\n'
+    elif [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
+        printf '       Response contains denial/filter wording; review the TXT report.\n'
+    fi
 }
 report_init() {
     local safe_host stamp
@@ -86,6 +159,7 @@ report_endpoint() {
     fi
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
+    terminal_endpoint
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
         case ${E[status]} in
@@ -151,4 +225,19 @@ report_finish() {
     [[ ! -e $REPORT_BASE.txt && ! -e $REPORT_BASE.json ]] || return 1
     mv -- "$TXT_REPORT" "$REPORT_BASE.txt" && mv -- "$JSON_REPORT" "$REPORT_BASE.json" || return 1
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
+    terminal_section SUMMARY
+    for category in "${CATEGORY_ORDER[@]}"; do
+        terminal_status "${CATEGORY_STATUS[$category]}" "${category//_/ }"
+    done
+    printf '\nDirect endpoint checks: %s PASS, %s WARN, %s FAIL\n' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"
+    terminal_status "$OVERALL" 'Network prerequisites'
+    if ((${#BLOCKERS[@]})); then
+        printf 'Blockers:\n'
+        for line in "${BLOCKERS[@]}"; do printf '  - %s\n' "$line"; done
+    fi
+    if ((${#ALLOWLIST[@]} || ${#UNTESTED[@]})); then
+        printf 'Manual review: %s wildcard allowlist, %s other untested requirement(s).\n' "${#ALLOWLIST[@]}" "${#UNTESTED[@]}"
+    fi
+    printf 'RUM: VM-side sanity only; end-user browser connectivity is untested.\n'
+    printf 'Reports:\n  TXT  %s.txt\n  JSON %s.json\n' "$REPORT_BASE" "$REPORT_BASE"
 }

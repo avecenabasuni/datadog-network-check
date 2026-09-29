@@ -5,6 +5,7 @@ All test artifacts live beneath reports/. No customer endpoints are contacted.
 import json
 import os
 from pathlib import Path
+import pty
 import shutil
 import subprocess
 import tempfile
@@ -37,6 +38,37 @@ class UnitTests(unittest.TestCase):
     def test_json_escaping(self):
         output = self.run_code("json_string $'quotes \" backslash \\\\ tab\\t newline\\n escape\\033'")
         self.assertEqual(json.loads(output), 'quotes " backslash \\ tab\t newline\n escape')
+
+    def test_terminal_colors_only_when_tty_and_enabled(self):
+        def capture(no_color):
+            master, slave = pty.openpty()
+            env = os.environ.copy()
+            env['TERM'] = 'xterm'
+            env.pop('NO_COLOR', None)
+            if no_color:
+                env['NO_COLOR'] = '1'
+            try:
+                result = subprocess.run(['bash', '-c', SOURCE + 'terminal_status PASS example.com'],
+                    cwd=ROOT, env=env, stdout=slave, stderr=subprocess.PIPE, timeout=10)
+                os.close(slave)
+                slave = -1
+                rendered = os.read(master, 4096)
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                return rendered
+            finally:
+                if slave >= 0:
+                    os.close(slave)
+                os.close(master)
+
+        self.assertIn(b'\x1b[32m', capture(False))
+        self.assertNotIn(b'\x1b[', capture(True))
+
+    def test_compact_warning_explains_skipped_optional_tls_probe(self):
+        output = self.run_code("LAST_TERMINAL_CATEGORY=agent; category=agent; E[hostname]=example.com; "
+            "E[classification]='DIRECT TEST'; E[impact]=WARN; E[dns]=PASS; E[tcp]=PASS; "
+            "E[tls]=SKIPPED; E[tls_detail]='OpenSSL unavailable'; "
+            "E[http]=PASS; E[http_status]=403; terminal_endpoint")
+        self.assertIn('TLS: OpenSSL unavailable', output)
 
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
@@ -334,6 +366,15 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.manifest()
         result, report = self.scan(0, interactive=True)
         self.assertIn('9) US2-FED', result.stdout)
+        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
+        self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', result.stdout)
+        self.assertEqual(result.stdout.count('example.com  DNS ok'), 1)
+        self.assertNotIn('TLS probe', result.stdout)
+        self.assertNotIn('CNAME chain', result.stdout)
+        self.assertNotIn('\x1b', result.stdout)
+        detailed = next((self.root / 'reports').glob('*.txt')).read_text()
+        self.assertIn('TLS probe', detailed)
+        self.assertIn('DNS               PASS', detailed)
         self.assertEqual(report['overall_status'], 'READY')
         self.assertEqual(report['endpoints'][0]['http_result']['http_status'], '403')
         calls = (self.root / 'calls').read_text()
@@ -347,6 +388,16 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
         self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+
+    def test_rum_terminal_explicitly_limits_browser_claim(self):
+        self.manifest()
+        (self.root / 'config/endpoints.conf').write_text(
+            '# last_verified_against_datadog_docs=2026-09-29\n'
+            'browser|rum|RUM intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|Browser path differs|https://example.com/docs\n')
+        result, report = self.scan(0)
+        self.assertIn('[VM only]', result.stdout)
+        self.assertIn('end-user browser connectivity is untested', result.stdout)
+        self.assertEqual(report['endpoints'][0]['classification'], 'SERVER-SIDE SANITY CHECK ONLY')
 
     def test_malformed_no_network(self):
         self.manifest('broken|record\n')
@@ -384,8 +435,11 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
     def test_blocked_http_transport(self):
         self.manifest()
         self.write_command('curl', 'exit 28')
-        _, report = self.scan(2)
+        result, report = self.scan(2)
         self.assertEqual(report['overall_status'], 'BLOCKED')
+        self.assertIn('HTTP: Connection or request timeout', result.stdout)
+        self.assertIn('BLOCKED', result.stdout)
+        self.assertNotIn('\x1b', result.stdout)
 
     def test_oversize_http_sample_does_not_block_required_endpoint(self):
         self.manifest()

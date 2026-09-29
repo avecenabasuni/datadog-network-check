@@ -98,6 +98,25 @@ A GET with a byte range limits requested body size. Response capture is capped; 
 
 All limits are at the top of `dd-network-check.sh`. Requests are sequential; successful endpoints receive no retry. HTTP performs at most two original-endpoint attempts plus one optional redirect diagnostic (up to four requests in that diagnostic). TLS performs at most two attempts. A full scan can take several minutes, especially with failed or slow routes. A successful sampled address does not validate every current or future IP, both IP families, sustained availability, throughput, payload upload limits, or every API path/method. The script uses ordinary hostnames; it does not separately validate trailing-dot behavior used by newer Agents.
 
+## Terminal display and detailed reports
+
+While the scan runs, the terminal shows one compact line per applicable endpoint, grouped by category. `WARN` and `FAIL` rows include a short reason; wildcard or manual entries say `REVIEW`. RUM rows carry `[VM only]`, and the summary repeats that browser connectivity remains untested. The summary shows category readiness, the counts for directly checked endpoints, outstanding manual checks, and the two report paths. A redirect appears as `HTTP 307>200` when the original endpoint responded 307 and the follow-up returned 200.
+
+```text
+API
+----------------------------------------
+  PASS     api.datadoghq.com  DNS ok  TCP ok  TLS ok  HTTP 307>200
+
+SUMMARY
+----------------------------------------
+  PASS     api
+
+Direct endpoint checks: 39 PASS, 7 WARN, 0 FAIL
+  READY WITH WARNINGS Network prerequisites
+```
+
+This is an illustrative excerpt, not evidence about your VM. The TXT report keeps every DNS/CNAME answer, IP probe, certificate detail and response timing; JSON keeps the machine-readable fields. Terminal color is enabled only when stdout is an interactive terminal. Set `NO_COLOR=1` to suppress color; redirected output and report files contain no ANSI color codes. The compact terminal view and detailed files report the same readiness result.
+
 ## Interpreting results
 
 Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY TESTABLE. `ALLOWLIST REQUIREMENT` is a classification, not a passed test.

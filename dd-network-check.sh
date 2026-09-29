@@ -17,12 +17,12 @@ source "$ROOT/lib/http.sh" || exit 3
 source "$ROOT/lib/reporting.sh" || exit 3
 
 # Internal limits, seconds. No background probing or package installation.
-TOOL_VERSION=0.1.2
+TOOL_VERSION=0.1.3
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
-    local choice i dep line host field state missing=0
+    local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
     SITE=''
     while (($#)); do
         case $1 in
@@ -63,6 +63,8 @@ main() {
     for dep in bash curl getent dig nslookup openssl timeout nc; do
         state=unavailable; have "$dep" && state=available
         emit "$(printf '%-12s %s' "$dep" "$state")"
+        if [[ $state == available ]]; then available_tools+=" $dep"
+        else unavailable_tools+=" $dep"; fi
         [[ $DEPENDENCY_JSON == '{' ]] || DEPENDENCY_JSON+=','
         DEPENDENCY_JSON+="\"$dep\":\"$state\""
     done
@@ -72,9 +74,10 @@ main() {
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     detect_agent_version; emit "Installed stable Agent version: ${AGENT_VERSION:-not determined}"
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
+    terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
-    OVERALL=READY; LAST_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
+    OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}
