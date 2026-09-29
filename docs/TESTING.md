@@ -4,6 +4,8 @@ The checker runtime needs no Python. The regression suite uses Python 3's standa
 
 The suite also checks that the generated standalone bundle matches its source files, then tests the exact README one-command invocation with a mock downloader. It covers rejected partial/empty downloads, preserved input and exit codes, argument forwarding, and a complete interactive scan from a directory without a checkout. See [distribution design](DISTRIBUTION.md).
 
+HTTP capture regression cases simulate older curl receiving an unknown-size response larger than the sample limit. They verify metadata/exit-code preservation, WARN instead of a false blocker for an intentionally closed sample pipe, and continued FAIL for real write errors or timeouts. Small responses and diagnostic-reader failures are covered separately.
+
 ```bash
 bash tests/run.sh
 ```

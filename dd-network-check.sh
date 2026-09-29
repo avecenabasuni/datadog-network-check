@@ -30,7 +30,7 @@ main() {
         esac
     done
     [[ $(uname -s) == Linux ]] || { error 'v0.1 supports Linux only'; return 3; }
-    for dep in curl awk sed grep head tr date hostname mktemp mkdir mv rm rmdir; do
+    for dep in curl awk sed grep head tee wc tr date hostname mktemp mkdir mv rm rmdir; do
         have "$dep" || { error "Required utility unavailable: $dep"; missing=1; }
     done
     ((missing==0)) || return 3

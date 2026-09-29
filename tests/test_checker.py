@@ -158,11 +158,67 @@ http_check example.com; echo "${E[http]}"
         self.assertEqual(result.stderr, '')
         self.assertEqual(result.stdout.strip(), 'PASS')
 
+    def test_large_stream_keeps_metadata_after_sample_pipe_closes(self):
+        # Emulate pre-8.4 curl: unknown-size body ignores --max-filesize and
+        # returns CURLE_WRITE_ERROR when our bounded response pipe closes.
+        result = bash(SOURCE + r'''
+curl() {
+    { printf 'HTTP/1.1 200 OK\r\nServer: fixture\r\n\r\n'; head -c 180000 /dev/zero | tr '\000' x; } >&4 2>/dev/null
+    printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n'
+    return 23
+}
+http_check example.com
+printf '%s\n' "${E[http]}" "${E[curl_exit]}" "${E[http_status]}" "${E[curl_tls]}" "${E[server]}" "${E[http_detail]}"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        lines = result.stdout.splitlines()
+        self.assertEqual(lines[:4], ['WARN', '23', '200', 'PASS'])
+        self.assertEqual(lines[4].strip(), 'fixture')
+        self.assertIn('diagnostic size limit', lines[5])
+
+    def test_real_write_error_not_treated_as_sample_limit(self):
+        output = self.run_code(r'''
+curl_probe() { printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n100\n40\n'; return 23; }
+http_check example.com; echo "${E[http]} ${E[curl_exit]}"
+''')
+        self.assertEqual(output, 'FAIL 23')
+
+    def test_large_response_timeout_stays_failure(self):
+        output = self.run_code(r'''
+curl_probe() { printf '\nDD_PREFLIGHT_SAMPLE_BYTES=65536\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n'; return 28; }
+http_check example.com; echo "${E[http]} ${E[curl_exit]}"
+''')
+        self.assertEqual(output, 'FAIL 28')
+
+    def test_missing_metadata_is_diagnostic_gap_not_network_blocker(self):
+        output = self.run_code('curl_probe() { printf "HTTP/1.1 200 OK\\r\\n\\r\\n"; }; '
+                               'http_check example.com; classify_result; '
+                               'echo "${E[http]} ${E[curl_exit]} ${E[impact]}"')
+        self.assertEqual(output, 'SKIPPED 0 WARN')
+
+    def test_sample_reader_failure_is_not_reported_as_pass(self):
+        output = self.run_code(r'''
+curl_probe() { printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n20\n40\nDD_PREFLIGHT_CAPTURE_ERROR\n'; }
+http_check example.com; echo "${E[http]} ${E[curl_exit]}"
+''')
+        self.assertEqual(output, 'SKIPPED 0')
+
+    def test_actual_probe_retains_small_body_and_metadata(self):
+        output = self.run_code(r'''
+curl() {
+    printf 'HTTP/1.1 403 Forbidden\r\nServer: fixture\r\n\r\nrejected' >&4
+    printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n8\n44\n'
+}
+http_check example.com; echo "${E[http]} ${E[curl_exit]} ${E[http_status]} ${E[server]}"
+''')
+        self.assertEqual(output, 'PASS 0 403  fixture')
+
     def test_curl_does_not_enable_secret_logging(self):
         output = self.run_code('SSLKEYLOGFILE=/do-not-write; export SSLKEYLOGFILE; '
             'curl() { [[ -z ${SSLKEYLOGFILE-} ]] || return 1; echo OK; }; curl_probe https://example.com; '
             '[[ $SSLKEYLOGFILE == /do-not-write ]] || exit 1')
-        self.assertEqual(output, 'OK')
+        self.assertTrue(output.endswith('OK'), output)
 
     def test_block_page(self):
         output = self.http(status='200', body='HTTP/1.1 200 OK\r\n\r\nFortiGate: category blocked')
@@ -304,6 +360,21 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.write_command('curl', 'exit 28')
         _, report = self.scan(2)
         self.assertEqual(report['overall_status'], 'BLOCKED')
+
+    def test_oversize_http_sample_does_not_block_required_endpoint(self):
+        self.manifest()
+        self.write_command('curl', r'''
+{ printf 'HTTP/1.1 200 OK\r\nServer: fixture\r\n\r\n'; head -c 180000 /dev/zero | tr '\000' x; } >&4 2>/dev/null
+printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n180000\n40\n'
+exit 23
+''')
+        _, report = self.scan(1)
+        self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
+        self.assertEqual(report['blockers'], [])
+        http = report['endpoints'][0]['http_result']
+        self.assertEqual(http['status'], 'WARN')
+        self.assertEqual(http['curl_exit'], '23')
+        self.assertEqual(http['http_status'], '200')
 
     def test_informational_failure_warning(self):
         self.manifest(required=False)

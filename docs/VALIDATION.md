@@ -36,3 +36,15 @@ The full scan exposed binary NUL bytes in one registry response. The final imple
 ## One-command distribution follow-up
 
 The expanded suite passed **41 tests**, including a complete 59-record interactive standalone scan from a directory without `config/` or `lib/`. Only the report directory was created there. Tests also verified that failed/partial/empty downloads do not execute, terminal input and arguments are preserved, checker exit codes propagate, and the generated bundle matches its source modules and manifests. The standalone bundle passed Bash syntax validation. ShellCheck remained unavailable.
+
+## Oversized HTTP response correction
+
+A reported false BLOCKED result was reproduced: the old combined response/metadata stream was truncated before curl's trailing metadata and exit code, causing the checker to display its internal fallback value as `curl exit 99`. This could happen on older curl versions when an unknown-size response exceeded the capture limit. It was not proof of network blocking.
+
+The corrected probe sends its bounded body/header sample and curl metadata through separate channels, counts the sampled bytes independently, and preserves the actual curl result. An intentional sample cutoff becomes WARN only with verified HTTPS and an HTTP response; unrelated write errors, TLS errors and timeouts remain FAIL. Missing diagnostic metadata is explicitly SKIPPED.
+
+Live checks of `install.datadoghq.com` from the development environment received HTTP 200 with verified TLS. Both curl's own file-size cutoff (exit 63) and an emulated older-curl streaming path using the real curl executable (exit 23) correctly resulted in WARN. These development-machine observations do not replace a fresh customer-VM scan.
+
+All **48 regression tests passed** after this fix, including the standalone full-scan test and negative cases that keep actual network errors as FAIL. The bundle freshness and Bash syntax checks passed. ShellCheck was still unavailable and was not installed.
+
+The compatibility behavior was checked through Context7 against curl's official [maximum file size documentation](https://github.com/curl/curl/blob/master/docs/cmdline-opts/max-filesize.md): before 8.4.0, unknown-size transfers were not constrained by this option during transfer.

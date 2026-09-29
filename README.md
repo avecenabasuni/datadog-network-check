@@ -112,7 +112,7 @@ Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY T
 | Wildcard/version/port requirement without concrete target | NOT DIRECTLY TESTABLE; coverage warning |
 | Windows-only, excluded traffic, or site excluded by manifest | NOT APPLICABLE; neutral in aggregation |
 
-A body-size cap is a deliberate exception: if TLS was verified and HTTP headers arrived, curl exit 63 is a warning. Other transport failures remain failures even if an earlier response arrived. HTTP reachability cannot conclusively identify a transparent intermediary that presents a trusted certificate; block-page detection is only a conservative heuristic.
+A body-size cap is a deliberate exception: if TLS was verified and HTTP headers arrived, curl exit 63 is a warning. Curl metadata is captured separately from the bounded response sample, so large bodies cannot discard the HTTP status or actual exit code. On older curl versions, closing the sample pipe can produce exit 23; that becomes a warning only when the independent response-sample byte count confirms the limit was reached. Other write errors and transport failures remain failures even if an earlier response arrived. Missing diagnostic metadata is reported as SKIPPED, never as a fabricated curl exit code or a proven network blocker. HTTP reachability cannot conclusively identify a transparent intermediary that presents a trusted certificate; block-page detection is only a conservative heuristic.
 
 An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unverified, then PASS). Its **impact** determines readiness:
 
@@ -145,7 +145,7 @@ No proxy configuration is changed. curlrc is disabled so user options cannot inj
 
 ## Dependencies and reports
 
-Required: Bash 4+, curl, and ordinary Linux utilities (`awk`, `sed`, `grep`, `head`, `tr`, `date`, `hostname`, `mktemp`, `mkdir`, `mv`, `rm`, `rmdir`, `dirname`, `uname`). Expected: `getent`. Optional: `dig`, `nslookup`, `openssl`, `timeout`. `nc` availability is displayed but it is not needed. No jq, yq or Python runtime dependency. On systems lacking `timeout`, only inherently bounded DNS tools and curl are used; detail stages are skipped.
+Required: Bash 4+, curl, and ordinary Linux utilities (`awk`, `sed`, `grep`, `head`, `tee`, `wc`, `tr`, `date`, `hostname`, `mktemp`, `mkdir`, `mv`, `rm`, `rmdir`, `dirname`, `uname`). Expected: `getent`. Optional: `dig`, `nslookup`, `openssl`, `timeout`. `nc` availability is displayed but it is not needed. No jq, yq or Python runtime dependency. On systems lacking `timeout`, only inherently bounded DNS tools and curl are used; detail stages are skipped.
 
 TXT and JSON reports are automatically saved under `reports/` with host, UTC timestamp and a collision-resistant suffix. Files use a restrictive umask; the directory must be owned by the current user and must not be a symlink. Reports contain no ANSI colors. JSON schema version 1.0 includes metadata, site, dependency/proxy detection, categories, endpoint stages, certificate metadata, allowlist requirements, untested requirements, blockers and overall status. HTTP numeric metadata is represented as strings, with empty strings for unavailable values. Interrupted runs leave private intermediate files under `.run-*`; these are incomplete and must not be treated as final reports.
 
