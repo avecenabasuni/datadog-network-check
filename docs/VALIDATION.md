@@ -48,3 +48,26 @@ Live checks of `install.datadoghq.com` from the development environment received
 All **48 regression tests passed** after this fix, including the standalone full-scan test and negative cases that keep actual network errors as FAIL. The bundle freshness and Bash syntax checks passed. ShellCheck was still unavailable and was not installed.
 
 The compatibility behavior was checked through Context7 against curl's official [maximum file size documentation](https://github.com/curl/curl/blob/master/docs/cmdline-opts/max-filesize.md): before 8.4.0, unknown-size transfers were not constrained by this option during transfer.
+
+## v0.1.1 transport attribution and bounded retries
+
+All **64 offline regression tests passed**. This includes 16 new cases covering origin-versus-redirect attribution, TLS process timeouts after verified negotiation, incomplete handshakes, certificate-error preservation, bounded recovery attempts and timeout-phase diagnostics. Bundle freshness and Bash syntax checks passed. ShellCheck remained unavailable and was not installed.
+
+Live smoke checks on the development machine passed: example.com returned HTTP 206; the Datadog API origin returned HTTP 307 with verified TLS, and its separate redirect diagnostic received HTTP 200 (WARN for the response size cap). The reserved nonexistent DNS name and held non-listening loopback port failed as expected. The smoke output is in `reports/live-smoke.json`, ignored by Git. These observations are not evidence about the customer VM.
+
+A full US1 scan using the rebuilt standalone artifact completed with **exit 1 / READY WITH WARNINGS**, covering all **59 manifest entries** and **23 categories**, with **zero blockers**. TXT and JSON reports were generated and validated, including schema 1.1, tool version 0.1.1 and absence of ANSI escapes. Report base: `reports/dd-network-preflight-MSI-20260929-125955-O4h7j6LL`. API evidence from that scan:
+
+```text
+api.datadoghq.com
+DNS              PASS
+TCP              WARN - three IPv4 successes, one IPv6 network-unreachable result
+TLS              PASS
+HTTP origin      307 - verified TLS, endpoint reachable
+Origin timing    TCP=0.266403s, TLS=0.518607s, total=0.766905s (cumulative)
+Redirect follow  WARN - HTTP 200, response exceeded diagnostic size limit
+Endpoint impact  WARN
+```
+
+The JSON report now uses schema 1.1: original HTTP response fields describe the manifest endpoint, while `http_result.redirect_result` describes the follow-up. TLS/HTTP attempt histories and cumulative request timing make transient recovery and persistent failures distinguishable. A reachable original endpoint followed by a failed redirect is explicitly WARN; that redirect destination still requires review. A separately listed required destination can still block the scan through its own result.
+
+Context7 was consulted for official [curl timing variables](https://github.com/curl/curl/blob/master/docs/cmdline-opts/write-out.md), [redirect behavior](https://github.com/curl/curl/blob/master/docs/cmdline-opts/location.md), and OpenSSL verification behavior. The [OpenSSL s_client documentation](https://docs.openssl.org/3.0/man1/openssl-s_client/) was also reviewed for non-interactive use and EOF handling. Verification code zero alone is not treated as evidence of a completed handshake after a timeout; the warning exception also requires negotiated TLS cipher evidence and no verification error.

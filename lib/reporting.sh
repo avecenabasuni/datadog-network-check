@@ -38,7 +38,10 @@ endpoint_json() {
     printf ',"attempts":'; json_lines "${E[tcp_attempts]}"; printf '}'
     printf ',"tls_result":{"status":'; json_string "${E[tls]}"
     printf ',"detail":'; json_string "${E[tls_detail]}"
-    printf ',"curl_tls_fallback":'; json_string "${E[curl_tls]}"; printf '}'
+    printf ',"curl_tls_fallback":'; json_string "${E[curl_tls]}"
+    printf ',"remote_ip":'; json_string "${E[tls_ip]}"
+    printf ',"openssl_exit":'; json_string "${E[tls_exit]}"
+    printf ',"attempts":'; json_lines "${E[tls_attempts]}"; printf '}'
     printf ',"certificate_metadata":{'
     first=1
     for field in subject issuer expiry verification; do
@@ -46,10 +49,16 @@ endpoint_json() {
     done
     printf '},"http_result":{"status":'; json_string "${E[http]}"
     printf ',"detail":'; json_string "${E[http_detail]}"
-    for field in http_status final_url remote_ip redirect_count server via curl_exit; do
+    for field in http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[$field]}"
     done
-    printf '}}\n'
+    printf ',"attempts":'; json_lines "${E[http_attempts]}"
+    printf ',"redirect_result":{"status":'; json_string "${E[redirect_http]}"
+    printf ',"detail":'; json_string "${E[redirect_http_detail]}"
+    for field in http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
+        printf ','; json_string "$field"; printf ':'; json_string "${E[redirect_$field]}"
+    done
+    printf '}}}\n'
 }
 report_endpoint() {
     local field value
@@ -65,15 +74,27 @@ report_endpoint() {
     [[ -z ${E[ips]} ]] || emit "Resolved IPs     ${E[ips]//$'\n'/, }"
     value=${E[cnames]%$'\n'}; [[ -z $value ]] || emit "CNAME chain      ${value//$'\n'/ -> }"
     value=${E[tcp_attempts]%$'\n'}; [[ -z $value ]] || emit "TCP/$port probes   ${value//$'\n'/; }"
+    while IFS= read -r value; do [[ -z $value ]] || emit "TLS probe         $value"; done <<< "${E[tls_attempts]}"
+    while IFS= read -r value; do [[ -z $value ]] || emit "HTTP probe        $value"; done <<< "${E[http_attempts]}"
     for field in subject issuer expiry verification http_status final_url remote_ip redirect_count server via curl_tls; do
         value=${E[$field]}; [[ -z $value ]] || emit "$(printf '%-17s %s' "$field" "$value")"
     done
+    if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        emit "Redirect follow   ${E[redirect_http]} - ${E[redirect_http_detail]}"
+        emit "Redirect result   HTTP=${E[redirect_http_status]:-none}, curl=${E[redirect_curl_exit]:-unknown}, IP=${E[redirect_remote_ip]:-unknown}, hops=${E[redirect_redirect_count]}, total=${E[redirect_time_total]:-unknown}s"
+        emit "Redirect URL      ${E[redirect_final_url]}"
+    fi
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ -z ${CATEGORY_STATUS[$category]-} ]]; then CATEGORY_ORDER+=("$category"); CATEGORY_STATUS[$category]=PASS; fi
     case ${E[impact]} in
-        FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED; BLOCKERS+=("${E[hostname]}: DNS=${E[dns]}, TCP=${E[tcp]}, TLS=${E[tls]}, HTTP=${E[http]}");;
+        FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
+              value="${E[hostname]}:"
+              for field in dns tcp tls http; do
+                  [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
+              done
+              BLOCKERS+=("$value");;
         WARN) [[ ${CATEGORY_STATUS[$category]} == FAIL ]] || CATEGORY_STATUS[$category]=WARN
               [[ $OVERALL == BLOCKED ]] || OVERALL='READY WITH WARNINGS';;
     esac
@@ -98,7 +119,8 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.0","metadata":{"tool_version":"0.1.0","timestamp":'; json_string "$TIMESTAMP"
+        printf '{"schema_version":"1.1","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
         printf ',"last_verified_against_datadog_docs":'; json_string "$VERIFIED"

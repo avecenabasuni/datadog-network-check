@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=d38fe6481bebad5bf920381d0405b5474f1ecd8ac78ea8d53c24ffa1ff6066e0
+# source_sha256=b9a62f2ba7a857e95336b9e05200990f6e59601a71b92fd3b811083112f65fb0
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -55,9 +55,14 @@ reset_result() {
     E=([dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
        [ips]='' [cnames]='' [tcp]=SKIPPED [tcp_detail]='DNS dependency unavailable'
        [tcp_attempts]='' [tcp_ip]='' [tls]=SKIPPED [tls_detail]='TCP dependency unavailable'
+       [tls_attempts]='' [tls_ip]='' [tls_exit]=''
        [subject]='' [issuer]='' [expiry]='' [verification]='' [http]=SKIPPED
        [http_detail]='Not attempted' [http_status]='' [final_url]='' [remote_ip]=''
        [redirect_count]=0 [server]='' [via]='' [curl_exit]='' [curl_tls]=SKIPPED
+       [http_attempts]='' [time_namelookup]='' [time_connect]='' [time_appconnect]='' [time_starttransfer]='' [time_total]=''
+       [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
+       [redirect_http_status]='' [redirect_final_url]='' [redirect_remote_ip]=''
+       [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }
 proxy_snapshot() {
@@ -315,8 +320,16 @@ tcp_check() {
 # END GENERATED MODULE: lib/tcp.sh
 # BEGIN GENERATED MODULE: lib/tls.sh
 #!/usr/bin/env bash
+tls_probe() (
+    unset SSLKEYLOGFILE
+    local target=$2
+    [[ $target != *:* ]] || target="[$target]"
+    timeout -k 1 "$TLS_TIMEOUT" openssl s_client -connect "$target:$port" \
+        -servername "$1" -verify_hostname "$1" -verify_return_error -showcerts \
+        -no_ign_eof </dev/null 2>&1
+)
 tls_check() {
-    local host=$1 target output rc cert meta
+    local host=$1 target output rc cert meta attempt candidate verification_error
     if ! have openssl || ! have timeout; then
         E[tls_detail]='Detailed TLS inspection SKIPPED: openssl or timeout unavailable; see curl_tls for fallback'; return
     fi
@@ -324,12 +337,39 @@ tls_check() {
     if ! openssl s_client -help 2>&1 | grep -q -- '-verify_hostname'; then
         E[tls_detail]='OpenSSL lacks hostname verification; see curl_tls'; return
     fi
-    target=${E[tcp_ip]}; [[ $target != *:* ]] || target="[$target]"
-    output=$(timeout -k 1 "$TLS_TIMEOUT" openssl s_client -connect "$target:$port" -servername "$host" -verify_hostname "$host" -verify_return_error -showcerts </dev/null 2>&1); rc=$?
-    E[verification]=$(printf '%s\n' "$output" | awk '/Verify return code:|Verification error:/ {print}')
-    E[tls]=FAIL; E[tls_detail]="Direct SNI/chain/hostname verification failed (exit $rc)"
-    if ((rc==0)) && [[ $output == *'Verify return code: 0 (ok)'* ]]; then E[tls]=PASS; E[tls_detail]='Direct SNI, hostname and certificate chain verified'; fi
-    [[ $rc != 124 && $rc != 137 ]] || E[tls_detail]='TLS handshake timeout'
+    target=${E[tcp_ip]}
+    for ((attempt=1; attempt<=TLS_MAX_ATTEMPTS; attempt++)); do
+        output=$(tls_probe "$host" "$target"); rc=$?
+        E[tls_ip]=$target; E[tls_exit]=$rc
+        E[verification]=$(printf '%s\n' "$output" | awk '/Verify return code:|Verification error:/ {print}')
+        verification_error=0
+        if [[ $output == *'verify error:'* || $output == *'Verification error:'* || $output == *'certificate verify failed'* ]] ||
+            printf '%s\n' "${E[verification]}" | grep -Eq 'Verify return code: [1-9]'; then verification_error=1; fi
+        E[tls]=FAIL; E[tls_detail]="Direct SNI/chain/hostname verification failed (exit $rc)"
+        if ((rc==0 && !verification_error)) && [[ $output == *'Verify return code: 0 (ok)'* ]]; then
+            E[tls]=PASS; E[tls_detail]='Direct SNI, hostname and certificate chain verified'
+        elif ((rc==124 || rc==137)); then
+            E[tls_detail]='OpenSSL probe timed out; completed verified handshake not established'
+            # Verification alone is insufficient: require a negotiated TLS cipher too.
+            # A post-handshake process timeout is not proof of a handshake failure.
+            if ((!verification_error)) && [[ $output == *'Verify return code: 0 (ok)'* ]] &&
+                printf '%s\n' "$output" | grep -Eq '^(New|Reused), TLSv[0-9.]+, Cipher is (TLS_|ECDHE-|DHE-|AES|CHACHA)[A-Za-z0-9_-]+'; then
+                E[tls]=WARN; E[tls_detail]='Verified TLS session negotiated; OpenSSL process exceeded deadline afterward'
+            fi
+        fi
+        if ((verification_error)); then E[tls_detail]='OpenSSL reported certificate verification failure; see verification result'; fi
+        E[tls_attempts]+="attempt $attempt: IP=$target, ${E[tls]}, exit=$rc; ${E[tls_detail]}"$'\n'
+        [[ ${E[tls]} == FAIL && $verification_error == 0 && ( $rc == 124 || $rc == 137 ) ]] || break
+        # One bounded retry; prefer another address already proven reachable by TCP.
+        while IFS= read -r candidate; do
+            [[ $candidate == *' PASS' ]] || continue
+            candidate=${candidate% PASS}
+            if [[ $candidate != "$target" ]]; then target=$candidate; break; fi
+        done <<< "${E[tcp_attempts]}"
+    done
+    if ((attempt>1)) && [[ ${E[tls]} == PASS || ${E[tls]} == WARN ]]; then
+        E[tls]=WARN; add_note 'TLS recovered on bounded retry; initial timeout retained in TLS attempts'
+    fi
     cert=$(printf '%s\n' "$output" | awk '/-----BEGIN CERTIFICATE-----/{p=1} p{print} /-----END CERTIFICATE-----/{exit}')
     if [[ -n $cert ]]; then
         meta=$(printf '%s\n' "$cert" | openssl x509 -noout -subject -issuer -enddate 2>/dev/null)
@@ -347,6 +387,8 @@ curl_probe() (
     # Prevent an inherited debug setting from writing TLS session secrets.
     unset SSLKEYLOGFILE
     local metadata rc reader reader_rc
+    local -a redirect_options=()
+    [[ ${2:-origin} != follow ]] || redirect_options=(--location --max-redirs 3)
     # Keep the bounded response sample on a separate pipe from curl metadata.
     # Older curl releases do not enforce --max-filesize for unknown-size bodies.
     # Descriptor 4 is a pipe, not a file; raw responses never touch the filesystem.
@@ -358,11 +400,11 @@ curl_probe() (
             printf '\nDD_PREFLIGHT_SAMPLE_BYTES=%s\n' "$bytes" >&3
         )
         reader=$!
-        metadata=$(curl --disable --silent --show-error --include --location --max-redirs 3 \
+        metadata=$(curl --disable --silent --show-error --include "${redirect_options[@]}" \
             --proto '=https' --proto-redir '=https' --connect-timeout "$TCP_TIMEOUT" \
             --max-time "$HTTP_TIMEOUT" --max-filesize 65536 --range 0-32767 \
-            --output /dev/fd/4 --user-agent 'dd-network-preflight/0.1' \
-            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n' "$1" 2>/dev/null)
+            --output /dev/fd/4 --user-agent "dd-network-preflight/$TOOL_VERSION" \
+            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n%{time_namelookup}\n%{time_connect}\n%{time_appconnect}\n%{time_starttransfer}\n%{time_total}\n' "$1" 2>/dev/null)
         rc=$?
         exec 4>&-
         # Finish the sample before emitting metadata, including on small bodies.
@@ -378,9 +420,11 @@ safe_url() {
     [[ $scheme == https && $authority =~ ^[a-zA-Z0-9.:-]+$ ]] || { printf '[URL withheld]'; return; }
     printf '%s://%s/[path omitted]' "$scheme" "$authority"
 }
-http_check() {
-    local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes=''
-    output=$({ curl_probe "https://$host:$port$path"; printf 'DD_PREFLIGHT_EXIT=%s\n' "$?"; } | tr -d '\000')
+http_attempt() {
+    local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes='' field i
+    for field in http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
+    E[curl_tls]=SKIPPED; E[redirect_count]=0
+    output=$({ curl_probe "https://$host:$port$path" "${2:-origin}"; printf 'DD_PREFLIGHT_EXIT=%s\n' "$?"; } | tr -d '\000')
     if [[ $output == *DD_PREFLIGHT_META* ]]; then
         meta=${output##*DD_PREFLIGHT_META$'\n'}
         local -a fields
@@ -389,6 +433,11 @@ http_check() {
         final_ip=${fields[2]-}; is_ip "$final_ip" && E[remote_ip]=$final_ip
         redirect=${fields[3]-0}; [[ $redirect =~ ^[0-9]+$ ]] && E[redirect_count]=$redirect
         verify=${fields[4]-}
+        i=5
+        for field in time_namelookup time_connect time_appconnect time_starttransfer time_total; do
+            [[ ! ${fields[i]-} =~ ^[0-9]+\.[0-9]+$ ]] || E[$field]=${fields[i]}
+            ((i+=1))
+        done
     else status=''; verify=''; fi
     [[ $output != *DD_PREFLIGHT_EXIT=* ]] || rc=${output##*DD_PREFLIGHT_EXIT=}
     if [[ ! $rc =~ ^[0-9]+$ ]]; then
@@ -410,10 +459,19 @@ http_check() {
         5) E[http_detail]='Proxy DNS resolution failed';;
         6) E[http_detail]='Destination DNS resolution failed';;
         7) E[http_detail]='TCP connection failed on environment route';;
-        28) E[http_detail]='Connection or request timeout';;
+        28)
+            E[http_detail]='Connection or request timeout; phase unavailable'
+            if nonzero_time "${E[time_starttransfer]}"; then E[http_detail]='Timeout after response started'
+            elif nonzero_time "${E[time_appconnect]}"; then E[http_detail]='Timeout waiting for HTTP response after TLS completed'
+            elif nonzero_time "${E[time_connect]}"; then E[http_detail]='Timeout after TCP connected, before TLS completed (may include proxy negotiation)'
+            elif [[ -n ${E[time_connect]} ]]; then E[http_detail]='Timeout before TCP connection completed (DNS/proxy/connect phase)'; fi;;
         35|51|58|60|77|83|90|91) E[http_detail]='TLS handshake or certificate verification failed'; E[curl_tls]=FAIL;;
         47) E[http_detail]='Redirect limit exceeded';;
     esac
+    # A verified completed TLS connection is useful evidence even if HTTP stalls.
+    # Verification code zero on its own also occurs before a handshake: require
+    # curl's completed application-connect timestamp and no explicit TLS error.
+    if [[ ${E[curl_tls]} != FAIL && $verify == 0 ]] && nonzero_time "${E[time_appconnect]}"; then E[curl_tls]=PASS; fi
     if [[ $output == *DD_PREFLIGHT_CAPTURE_ERROR* ]] || { ((rc==0)) && [[ -z ${E[http_status]} || -z $verify ]]; }; then
         E[http]=SKIPPED; E[http_detail]='HTTP diagnostic capture incomplete; response metadata unavailable'
         add_note 'Checker diagnostic incomplete; no network blocker inferred from missing metadata'
@@ -439,6 +497,42 @@ http_check() {
         E[http]=WARN; add_note 'Denial/filter wording observed; may be an ordinary application response; filtering not established'
     fi
     if [[ ${E[tls]} == SKIPPED ]]; then add_note "Detailed TLS inspection SKIPPED; curl TLS fallback ${E[curl_tls]}"; fi
+}
+
+nonzero_time() { [[ $1 =~ ^[0-9]+\.[0-9]+$ && $1 == *[1-9]* ]]; }
+
+http_check() {
+    local host=$1 attempt key summary
+    E[http_attempts]=''
+    for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
+        http_attempt "$host" origin
+        summary="origin attempt $attempt: ${E[http]}, curl=${E[curl_exit]:-unknown}, HTTP=${E[http_status]:-none}, IP=${E[remote_ip]:-unknown}, TCP=${E[time_connect]:-unknown}s, TLS=${E[time_appconnect]:-unknown}s, first_byte=${E[time_starttransfer]:-unknown}s, total=${E[time_total]:-unknown}s; ${E[http_detail]}"
+        E[http_attempts]+="$summary"$'\n'
+        [[ ${E[http]} == FAIL ]] || break
+        # No automatic retries for certificate failures or application responses.
+        case ${E[curl_exit]} in 7|28|52|55|56) ;; *) break;; esac
+    done
+    if ((attempt>1)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]]; then
+        E[http]=WARN
+        add_note 'Origin HTTPS recovered on retry; initial failure retained in HTTP attempts; reachability may be intermittent'
+    fi
+    if [[ ${E[curl_tls]} == PASS && ${E[http_status]} =~ ^3[0-9][0-9]$ && ( ${E[http]} == PASS || ${E[http]} == WARN ) ]]; then
+        # Keep original endpoint evidence separate from the redirect diagnostic.
+        # Re-request the original URL with curl-managed HTTPS-only redirect handling;
+        # never parse/replay an untrusted Location header ourselves.
+        E[http]=WARN
+        add_note 'Origin returned a redirect; follow-up is a separate diagnostic, not an origin reachability failure'
+        local -A origin=()
+        for key in "${!E[@]}"; do origin[$key]=${E[$key]}; done
+        http_attempt "$host" follow
+        for key in http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
+        origin[notes]=${E[notes]}
+        if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
+            origin[notes]+="; Redirect follow-up ${E[http]}: ${E[http_detail]}; review redirect destination separately"
+        fi
+        E=()
+        for key in "${!origin[@]}"; do E[$key]=${origin[$key]}; done
+    fi
 }
 # END GENERATED MODULE: lib/http.sh
 # BEGIN GENERATED MODULE: lib/reporting.sh
@@ -482,7 +576,10 @@ endpoint_json() {
     printf ',"attempts":'; json_lines "${E[tcp_attempts]}"; printf '}'
     printf ',"tls_result":{"status":'; json_string "${E[tls]}"
     printf ',"detail":'; json_string "${E[tls_detail]}"
-    printf ',"curl_tls_fallback":'; json_string "${E[curl_tls]}"; printf '}'
+    printf ',"curl_tls_fallback":'; json_string "${E[curl_tls]}"
+    printf ',"remote_ip":'; json_string "${E[tls_ip]}"
+    printf ',"openssl_exit":'; json_string "${E[tls_exit]}"
+    printf ',"attempts":'; json_lines "${E[tls_attempts]}"; printf '}'
     printf ',"certificate_metadata":{'
     first=1
     for field in subject issuer expiry verification; do
@@ -490,10 +587,16 @@ endpoint_json() {
     done
     printf '},"http_result":{"status":'; json_string "${E[http]}"
     printf ',"detail":'; json_string "${E[http_detail]}"
-    for field in http_status final_url remote_ip redirect_count server via curl_exit; do
+    for field in http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[$field]}"
     done
-    printf '}}\n'
+    printf ',"attempts":'; json_lines "${E[http_attempts]}"
+    printf ',"redirect_result":{"status":'; json_string "${E[redirect_http]}"
+    printf ',"detail":'; json_string "${E[redirect_http_detail]}"
+    for field in http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
+        printf ','; json_string "$field"; printf ':'; json_string "${E[redirect_$field]}"
+    done
+    printf '}}}\n'
 }
 report_endpoint() {
     local field value
@@ -509,15 +612,27 @@ report_endpoint() {
     [[ -z ${E[ips]} ]] || emit "Resolved IPs     ${E[ips]//$'\n'/, }"
     value=${E[cnames]%$'\n'}; [[ -z $value ]] || emit "CNAME chain      ${value//$'\n'/ -> }"
     value=${E[tcp_attempts]%$'\n'}; [[ -z $value ]] || emit "TCP/$port probes   ${value//$'\n'/; }"
+    while IFS= read -r value; do [[ -z $value ]] || emit "TLS probe         $value"; done <<< "${E[tls_attempts]}"
+    while IFS= read -r value; do [[ -z $value ]] || emit "HTTP probe        $value"; done <<< "${E[http_attempts]}"
     for field in subject issuer expiry verification http_status final_url remote_ip redirect_count server via curl_tls; do
         value=${E[$field]}; [[ -z $value ]] || emit "$(printf '%-17s %s' "$field" "$value")"
     done
+    if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        emit "Redirect follow   ${E[redirect_http]} - ${E[redirect_http_detail]}"
+        emit "Redirect result   HTTP=${E[redirect_http_status]:-none}, curl=${E[redirect_curl_exit]:-unknown}, IP=${E[redirect_remote_ip]:-unknown}, hops=${E[redirect_redirect_count]}, total=${E[redirect_time_total]:-unknown}s"
+        emit "Redirect URL      ${E[redirect_final_url]}"
+    fi
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ -z ${CATEGORY_STATUS[$category]-} ]]; then CATEGORY_ORDER+=("$category"); CATEGORY_STATUS[$category]=PASS; fi
     case ${E[impact]} in
-        FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED; BLOCKERS+=("${E[hostname]}: DNS=${E[dns]}, TCP=${E[tcp]}, TLS=${E[tls]}, HTTP=${E[http]}");;
+        FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
+              value="${E[hostname]}:"
+              for field in dns tcp tls http; do
+                  [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
+              done
+              BLOCKERS+=("$value");;
         WARN) [[ ${CATEGORY_STATUS[$category]} == FAIL ]] || CATEGORY_STATUS[$category]=WARN
               [[ $OVERALL == BLOCKED ]] || OVERALL='READY WITH WARNINGS';;
     esac
@@ -542,7 +657,8 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.0","metadata":{"tool_version":"0.1.0","timestamp":'; json_string "$TIMESTAMP"
+        printf '{"schema_version":"1.1","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
         printf ',"last_verified_against_datadog_docs":'; json_string "$VERIFIED"
@@ -568,7 +684,9 @@ report_finish() {
 # END GENERATED MODULE: lib/reporting.sh
 
 # Internal limits, seconds. No background probing or package installation.
+TOOL_VERSION=0.1.1
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
+HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0
@@ -606,6 +724,7 @@ main() {
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'
     emit "Host       : $MACHINE"; emit "OS         : $OS_NAME"; emit "Site       : ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
     emit "Timestamp  : $TIMESTAMP"; emit "Docs review: $VERIFIED"; emit ''
+    emit "Version    : $TOOL_VERSION"
     emit 'Dependency availability'
     DEPENDENCY_JSON='{'
     for dep in bash curl getent dig nslookup openssl timeout nc; do
@@ -619,7 +738,7 @@ main() {
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     detect_agent_version; emit "Installed stable Agent version: ${AGENT_VERSION:-not determined}"
-    emit 'Sequential full scan; each endpoint may take up to about one minute when unreachable.'
+    emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     declare -gA E=() CATEGORY_STATUS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
     OVERALL=READY; LAST_CATEGORY=''

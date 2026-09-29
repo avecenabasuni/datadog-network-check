@@ -17,7 +17,9 @@ source "$ROOT/lib/http.sh" || exit 3
 source "$ROOT/lib/reporting.sh" || exit 3
 
 # Internal limits, seconds. No background probing or package installation.
+TOOL_VERSION=0.1.1
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
+HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0
@@ -55,6 +57,7 @@ main() {
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'
     emit "Host       : $MACHINE"; emit "OS         : $OS_NAME"; emit "Site       : ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
     emit "Timestamp  : $TIMESTAMP"; emit "Docs review: $VERIFIED"; emit ''
+    emit "Version    : $TOOL_VERSION"
     emit 'Dependency availability'
     DEPENDENCY_JSON='{'
     for dep in bash curl getent dig nslookup openssl timeout nc; do
@@ -68,7 +71,7 @@ main() {
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     detect_agent_version; emit "Installed stable Agent version: ${AGENT_VERSION:-not determined}"
-    emit 'Sequential full scan; each endpoint may take up to about one minute when unreachable.'
+    emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     declare -gA E=() CATEGORY_STATUS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
     OVERALL=READY; LAST_CATEGORY=''

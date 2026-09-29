@@ -45,9 +45,14 @@ reset_result() {
     E=([dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
        [ips]='' [cnames]='' [tcp]=SKIPPED [tcp_detail]='DNS dependency unavailable'
        [tcp_attempts]='' [tcp_ip]='' [tls]=SKIPPED [tls_detail]='TCP dependency unavailable'
+       [tls_attempts]='' [tls_ip]='' [tls_exit]=''
        [subject]='' [issuer]='' [expiry]='' [verification]='' [http]=SKIPPED
        [http_detail]='Not attempted' [http_status]='' [final_url]='' [remote_ip]=''
        [redirect_count]=0 [server]='' [via]='' [curl_exit]='' [curl_tls]=SKIPPED
+       [http_attempts]='' [time_namelookup]='' [time_connect]='' [time_appconnect]='' [time_starttransfer]='' [time_total]=''
+       [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
+       [redirect_http_status]='' [redirect_final_url]='' [redirect_remote_ip]=''
+       [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }
 proxy_snapshot() {
