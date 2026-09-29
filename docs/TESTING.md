@@ -4,9 +4,11 @@ The checker runtime needs no Python. The regression suite uses Python 3's standa
 
 The suite also checks that the generated standalone bundle matches its source files, then tests the exact README one-command invocation with a mock downloader. It covers rejected partial/empty downloads, preserved input and exit codes, argument forwarding, and a complete interactive scan from a directory without a checkout. See [distribution design](DISTRIBUTION.md).
 
-HTTP capture regression cases simulate older curl receiving an unknown-size response larger than the sample limit. They verify metadata/exit-code preservation, WARN instead of a false blocker for an intentionally closed sample pipe, and continued FAIL for real write errors or timeouts. Small responses and diagnostic-reader failures are covered separately.
+HTTP capture regression cases simulate older curl receiving an unknown-size response larger than the sample limit. They verify metadata/exit-code preservation, PASS when a verified HTTP response is intentionally capped, and continued FAIL for real write errors or timeouts. Small responses and diagnostic-reader failures are covered separately.
 
 Transport-attribution regressions cover a verified TLS session followed by a process timeout, an incomplete handshake with verification code zero, certificate failures that must never be downgraded, and a timeout retry on another TCP-reachable address. HTTP cases cover recovery versus persistent failure, cumulative timing-based timeout details, no retries for certificate errors, and preservation of original HTTP 307 independently of successful, timed-out or certificate-rejected redirect follow-ups. Integration tests assert TXT/JSON histories, redacted redirect URLs, actionable blocker reasons and the resulting readiness status.
+
+Readiness semantics tests distinguish four sampled TCP successes from untested additional DNS answers, working IPv4 plus IPv6 `network unreachable`, a real IPv4 timeout, and IPv6-only failure. Redirect tests distinguish a verified single-hop same-host redirect from cross-host or multi-hop redirects. The report assertions cover direct endpoint PASS/WARN/FAIL counts separately from wildcard and manual coverage requirements.
 
 ```bash
 bash tests/run.sh

@@ -71,3 +71,27 @@ Endpoint impact  WARN
 The JSON report now uses schema 1.1: original HTTP response fields describe the manifest endpoint, while `http_result.redirect_result` describes the follow-up. TLS/HTTP attempt histories and cumulative request timing make transient recovery and persistent failures distinguishable. A reachable original endpoint followed by a failed redirect is explicitly WARN; that redirect destination still requires review. A separately listed required destination can still block the scan through its own result.
 
 Context7 was consulted for official [curl timing variables](https://github.com/curl/curl/blob/master/docs/cmdline-opts/write-out.md), [redirect behavior](https://github.com/curl/curl/blob/master/docs/cmdline-opts/location.md), and OpenSSL verification behavior. The [OpenSSL s_client documentation](https://docs.openssl.org/3.0/man1/openssl-s_client/) was also reviewed for non-interactive use and EOF handling. Verification code zero alone is not treated as evidence of a completed handshake after a timeout; the warning exception also requires negotiated TLS cipher evidence and no verification error.
+
+## v0.1.2 warning semantics
+
+The customer US1 report from 2026-09-29T13:06:08Z showed 46 DNS and 46 TLS passes, with 32 HTTP passes and 14 HTTP warnings; no directly tested endpoint had a hard failure. Most category warnings came from the checker's four-address sampling limit and IPv6 `network unreachable` alongside successful IPv4. The checker was overstating network risk. A response-body cap after verified HTTPS and a successful same-host redirect also generated warnings despite proving the original endpoint reachable.
+
+The revised rules keep sampling and an unavailable IPv6 route in report notes without warning when the tested IPv4 path works. Verified HTTP responses remain PASS when only the checker-controlled body sample stops. One verified redirect to the original HTTPS hostname can PASS; cross-host or multi-hop redirects remain WARN. Actual sampled address timeouts/refusals, failed TLS verification, incomplete HTTPS responses, and unverified wildcard/manual requirements retain their distinct statuses. The summary now includes direct endpoint PASS/WARN/FAIL counts, separate from manual coverage requirements. JSON schema is 1.2 and tool version is 0.1.2.
+
+All **70 offline tests passed**; the new cases cover four successful sampled addresses plus untested answers, IPv4 success with IPv6 unreachability, IPv4 timeout, IPv6-only failure, single same-host redirect success, and multi-hop redirect warning. Bundle freshness and Bash syntax checks passed. ShellCheck was unavailable and was not installed. An opt-in live smoke check returned DNS/TCP/TLS/HTTP PASS for the Datadog API origin, while reserved DNS and closed-port negatives failed as expected. These live observations were made from the development machine, not the customer VM.
+
+Context7 confirmed the official curl [`--max-filesize` behavior](https://github.com/curl/curl/blob/master/docs/cmdline-opts/max-filesize.md): exit 63 can reflect the deliberate transfer cap rather than a failed HTTPS connection. The checker still requires a real HTTP status and verified TLS before accepting that outcome; unrelated curl errors retain their failure status.
+
+A full US1 scan with the 0.1.2 standalone program covered all **59 manifest entries** and **23 categories**, writing schema 1.2 TXT and JSON reports without ANSI escapes. Its direct checks were **39 PASS, 7 WARN, 0 FAIL** and its overall result was **READY WITH WARNINGS**, with zero blockers. Installation, API, APM, logs, DBM and other required directly testable server categories passed. The remaining direct warnings were one informational RUM Remote Configuration sanity check with ambiguous denial wording and six conditional registry alternatives involving cross-host redirects. The agent, RUM and miscellaneous requirement categories also retain unverified wildcard/manual coverage warnings. Report base: `reports/dd-network-preflight-MSI-20260929-131802-5VwN2FFU`. This scan ran from the development machine, not the customer VM.
+
+The API result in that report is an example of the corrected classification:
+
+```text
+api.datadoghq.com
+DNS              PASS
+TCP              PASS - 3 reachable IPv4 addresses; IPv6 network unreachable is recorded
+TLS              PASS
+HTTP             PASS - origin HTTP 307
+Redirect follow  PASS - same hostname, HTTP 200; response sampling capped
+Endpoint impact  PASS
+```

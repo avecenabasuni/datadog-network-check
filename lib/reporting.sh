@@ -87,6 +87,13 @@ report_endpoint() {
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
+    if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
+        case ${E[status]} in
+            PASS) ((DIRECT_PASS+=1));;
+            WARN) ((DIRECT_WARN+=1));;
+            FAIL) ((DIRECT_FAIL+=1));;
+        esac
+    fi
     if [[ -z ${CATEGORY_STATUS[$category]-} ]]; then CATEGORY_ORDER+=("$category"); CATEGORY_STATUS[$category]=PASS; fi
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
@@ -105,7 +112,9 @@ report_finish() {
     local category line first=1 index=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
-    emit ''; emit "Overall: $OVERALL"
+    emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
+    emit 'Wildcard and manual requirements are listed below; they are not counted as passed checks.'
+    emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
         emit 'Detected blockers:'
         for line in "${BLOCKERS[@]}"; do ((index+=1)); emit "$index. $line"; done
@@ -119,7 +128,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.1","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.2","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -131,7 +140,7 @@ report_finish() {
         for category in "${CATEGORY_ORDER[@]}"; do
             ((first)) || printf ','; first=0; json_string "$category"; printf ':'; json_string "${CATEGORY_STATUS[$category]}"
         done
-        printf '},"endpoints":['; first=1
+        printf '},"direct_endpoint_counts":{"pass":%s,"warn":%s,"fail":%s},"endpoints":[' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"; first=1
         while IFS= read -r line; do ((first)) || printf ','; first=0; printf '%s' "$line"; done < "$ENDPOINT_JSON"
         printf '],"allowlist_requirements":'; json_lines "$(printf '%s\n' "${ALLOWLIST[@]}")"
         printf ',"untested_requirements":'; json_lines "$(printf '%s\n' "${UNTESTED[@]}")"

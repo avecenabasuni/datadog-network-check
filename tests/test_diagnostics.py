@@ -187,6 +187,25 @@ printf '\nDD_PREFLIGHT_META\n200\nhttps://other.example/\n192.0.2.2\n1\n0\n0.010
         self.assertEqual(http['redirect_result']['http_status'], '200')
         self.assertEqual(http['redirect_result']['redirect_count'], '1')
 
+    def test_single_same_host_redirect_is_pass(self):
+        self.redirect_fixture(r'''
+printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/login\n192.0.2.2\n1\n0\n0.010000\n0.240000\n0.540000\n0.700000\n0.710000\n'
+''')
+        _, report = self.scan(0)
+        endpoint = report['endpoints'][0]
+        self.assertEqual(endpoint['http_result']['status'], 'PASS')
+        self.assertEqual(endpoint['http_result']['http_status'], '307')
+        self.assertEqual(endpoint['http_result']['redirect_result']['http_status'], '200')
+        self.assertEqual(endpoint['impact'], 'PASS')
+        self.assertEqual(report['direct_endpoint_counts'], {'pass': 1, 'warn': 0, 'fail': 0})
+
+    def test_multi_hop_redirect_remains_warning_even_if_final_host_matches(self):
+        self.redirect_fixture(r'''
+printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/login\n192.0.2.2\n2\n0\n0.010000\n0.240000\n0.540000\n0.700000\n0.710000\n'
+''')
+        _, report = self.scan(1)
+        self.assertEqual(report['endpoints'][0]['http_result']['status'], 'WARN')
+
     def test_post_negotiation_tls_timeout_and_307_are_warning_in_report(self):
         self.redirect_fixture('exit 28')
         self.write_command('timeout', r'''

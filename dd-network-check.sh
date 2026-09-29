@@ -17,7 +17,7 @@ source "$ROOT/lib/http.sh" || exit 3
 source "$ROOT/lib/reporting.sh" || exit 3
 
 # Internal limits, seconds. No background probing or package installation.
-TOOL_VERSION=0.1.1
+TOOL_VERSION=0.1.2
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
@@ -74,7 +74,7 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     declare -gA E=() CATEGORY_STATUS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
-    OVERALL=READY; LAST_CATEGORY=''
+    OVERALL=READY; LAST_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}

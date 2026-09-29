@@ -88,6 +88,32 @@ dns_check example.com; echo "${E[dns]} ${E[cname]}"; echo "${E[cnames]}"; echo "
             'tcp_connect() { [[ $1 == 192.0.2.1 ]]; }; tcp_check; echo "${E[tcp]} ${E[tcp_ip]}"')
         self.assertEqual(output, 'WARN 192.0.2.1')
 
+    def test_tcp_sampling_does_not_warn_when_all_sampled_ips_pass(self):
+        output = self.run_code("E[ips]=$'192.0.2.1\\n192.0.2.2\\n192.0.2.3\\n192.0.2.4\\n192.0.2.5'; "
+            'tcp_connect() { return 0; }; tcp_check; echo "${E[tcp]} ${E[tcp_detail]}"; echo "${E[notes]}"')
+        self.assertTrue(output.startswith('PASS 4 successful, 0 other failures'), output)
+        self.assertIn('remaining addresses untested', output)
+
+    def test_tcp_ipv6_unreachable_with_working_ipv4_is_pass_with_detail(self):
+        output = self.run_code("E[ips]=$'192.0.2.1\\n2001:db8::1'; "
+            'tcp_connect() { [[ $1 == 192.0.2.1 ]] && return 0; echo "Network is unreachable"; return 1; }; '
+            'tcp_check; echo "${E[tcp]} ${E[tcp_detail]}"; echo "${E[tcp_attempts]}"; echo "${E[notes]}"')
+        self.assertTrue(output.startswith('PASS 1 successful, 0 other failures, 1 IPv6 network-unreachable'), output)
+        self.assertIn('2001:db8::1 FAIL - network unreachable', output)
+        self.assertIn('IPv6 address probe(s) reported network unreachable', output)
+
+    def test_tcp_ipv4_timeout_with_working_ipv4_remains_warn(self):
+        output = self.run_code("E[ips]=$'192.0.2.1\\n192.0.2.2'; "
+            'tcp_connect() { [[ $1 == 192.0.2.1 ]] && return 0; return 124; }; '
+            'tcp_check; echo "${E[tcp]} ${E[tcp_detail]}"')
+        self.assertTrue(output.startswith('WARN 1 successful, 1 other failures'), output)
+
+    def test_tcp_ipv6_only_unreachable_remains_fail(self):
+        output = self.run_code('E[ips]=2001:db8::1; '
+            'tcp_connect() { echo "Network is unreachable"; return 1; }; '
+            'tcp_check; echo "${E[tcp]} ${E[tcp_detail]}"')
+        self.assertTrue(output.startswith('FAIL 0 successful, 0 other failures, 1 IPv6'), output)
+
     def test_missing_timeout(self):
         output = self.run_code('have() { return 1; }; E[ips]=192.0.2.1; tcp_check; echo "${E[tcp]}"')
         self.assertEqual(output, 'SKIPPED')
@@ -147,7 +173,7 @@ tls_check example.com; echo "${E[tls]}"
         self.assertTrue(self.http(redirects=1).startswith('WARN\nPASS'))
 
     def test_http_capture_limit(self):
-        self.assertTrue(self.http(status='200', rc=63).startswith('WARN\nPASS'))
+        self.assertTrue(self.http(status='200', rc=63).startswith('PASS\nPASS'))
 
     def test_http_binary_response(self):
         result = bash(SOURCE + r'''
@@ -173,9 +199,9 @@ printf '%s\n' "${E[http]}" "${E[curl_exit]}" "${E[http_status]}" "${E[curl_tls]}
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stderr, '')
         lines = result.stdout.splitlines()
-        self.assertEqual(lines[:4], ['WARN', '23', '200', 'PASS'])
+        self.assertEqual(lines[:4], ['PASS', '23', '200', 'PASS'])
         self.assertEqual(lines[4].strip(), 'fixture')
-        self.assertIn('diagnostic size limit', lines[5])
+        self.assertIn('diagnostic body sample intentionally capped', lines[5])
 
     def test_real_write_error_not_treated_as_sample_limit(self):
         output = self.run_code(r'''
@@ -368,11 +394,11 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
 printf '\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n180000\n40\n'
 exit 23
 ''')
-        _, report = self.scan(1)
-        self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
+        _, report = self.scan(0)
+        self.assertEqual(report['overall_status'], 'READY')
         self.assertEqual(report['blockers'], [])
         http = report['endpoints'][0]['http_result']
-        self.assertEqual(http['status'], 'WARN')
+        self.assertEqual(http['status'], 'PASS')
         self.assertEqual(http['curl_exit'], '23')
         self.assertEqual(http['http_status'], '200')
 

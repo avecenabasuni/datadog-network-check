@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=b9a62f2ba7a857e95336b9e05200990f6e59601a71b92fd3b811083112f65fb0
+# source_sha256=32f832161d0dfab52cf005dbfa039b615017daa9c0f8ff86817eb5068f3f6f1f
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -296,7 +296,7 @@ dns_check() {
 # A separate wrapper makes TCP execution replaceable in offline tests.
 tcp_connect() { timeout -k 1 "$TCP_TIMEOUT" bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' bash "$1" "$2" 2>&1; }
 tcp_check() {
-    local ip output rc good=0 bad=0 count=0 reason
+    local ip output rc good=0 bad=0 unavailable_v6=0 count=0 reason
     if ! have timeout; then E[tcp_detail]='timeout unavailable; bounded raw TCP diagnostic skipped'; return; fi
     [[ -n ${E[ips]} ]] || return
     while IFS= read -r ip; do
@@ -306,16 +306,24 @@ tcp_check() {
             ((good+=1)); [[ -n ${E[tcp_ip]} ]] || E[tcp_ip]=$ip
             E[tcp_attempts]+="$ip PASS"$'\n'
         else
-            ((bad+=1)); reason="connect error $rc"
+            reason="connect error $rc"
             case $output in *refused*) reason='connection refused';; *unreachable*) reason='network unreachable';; esac
             [[ $rc != 124 && $rc != 137 ]] || reason=timeout
+            if [[ $ip == *:* && $reason == 'network unreachable' ]]; then
+                ((unavailable_v6+=1))
+            else
+                ((bad+=1))
+            fi
             E[tcp_attempts]+="$ip FAIL - $reason"$'\n'
         fi
     done <<< "${E[ips]}"
     E[tcp]=FAIL
     ((good==0)) || E[tcp]=PASS
-    if ((good>0 && (bad>0 || count>MAX_IP_PROBES))); then E[tcp]=WARN; fi
-    E[tcp_detail]="$good successful, $bad failed address probes; direct path"
+    if ((good>0 && bad>0)); then E[tcp]=WARN; fi
+    if ((good>0 && unavailable_v6>0)); then
+        add_note "$unavailable_v6 IPv6 address probe(s) reported network unreachable; reachable addresses remain verified"
+    fi
+    E[tcp_detail]="$good successful, $bad other failures, $unavailable_v6 IPv6 network-unreachable probes; direct path"
 }
 # END GENERATED MODULE: lib/tcp.sh
 # BEGIN GENERATED MODULE: lib/tls.sh
@@ -479,8 +487,13 @@ http_attempt() {
     if [[ $output != *DD_PREFLIGHT_CAPTURE_ERROR* && -n ${E[http_status]} && $verify == 0 ]] && ((rc==0 || rc==63 || (rc==23 && sampled))); then
         E[curl_tls]=PASS; E[http]=PASS
         E[http_detail]='Endpoint reachable; application-level response received; environment route'
-        if ((rc==63 || sampled)); then E[http]=WARN; E[http_detail]='HTTPS response received; body exceeded diagnostic size limit'; fi
-        if ((E[redirect_count]>0)); then E[http]=WARN; add_note 'Redirect observed; confirm final destination with the network team'; fi
+        if ((rc==63 || sampled)); then
+            E[http_detail]='Verified HTTPS response received; diagnostic body sample intentionally capped'
+            add_note 'Response body exceeded checker sample limit; HTTP reachability was already verified'
+        fi
+        if ((E[redirect_count]>0)) && [[ ${2:-origin} != follow ]]; then
+            E[http]=WARN; add_note 'Redirect observed; confirm final destination with the network team'
+        fi
         if ((10#${E[http_status]}>=500)) || [[ ${E[http_status]} == 407 ]]; then E[http]=WARN; add_note 'Service/proxy error response requires review'; fi
     fi
     # Only server/via headers; no cookies, authorization, locations, or raw body saved.
@@ -502,7 +515,7 @@ http_attempt() {
 nonzero_time() { [[ $1 =~ ^[0-9]+\.[0-9]+$ && $1 == *[1-9]* ]]; }
 
 http_check() {
-    local host=$1 attempt key summary
+    local host=$1 attempt key summary origin_http final_authority
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
@@ -520,6 +533,7 @@ http_check() {
         # Keep original endpoint evidence separate from the redirect diagnostic.
         # Re-request the original URL with curl-managed HTTPS-only redirect handling;
         # never parse/replay an untrusted Location header ourselves.
+        origin_http=${E[http]}
         E[http]=WARN
         add_note 'Origin returned a redirect; follow-up is a separate diagnostic, not an origin reachability failure'
         local -A origin=()
@@ -529,6 +543,14 @@ http_check() {
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
             origin[notes]+="; Redirect follow-up ${E[http]}: ${E[http_detail]}; review redirect destination separately"
+        elif [[ $origin_http == PASS && ${E[http]} == PASS && ${E[curl_tls]} == PASS && ${E[redirect_count]} == 1 ]]; then
+            final_authority=${E[final_url]#https://}
+            final_authority=${final_authority%%/*}
+            final_authority=${final_authority%:443}
+            if [[ $final_authority == "$host" ]]; then
+                origin[http]=PASS
+                origin[notes]+='; Single same-host HTTPS redirect verified; no additional destination identified'
+            fi
         fi
         E=()
         for key in "${!origin[@]}"; do E[$key]=${origin[$key]}; done
@@ -625,6 +647,13 @@ report_endpoint() {
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
+    if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
+        case ${E[status]} in
+            PASS) ((DIRECT_PASS+=1));;
+            WARN) ((DIRECT_WARN+=1));;
+            FAIL) ((DIRECT_FAIL+=1));;
+        esac
+    fi
     if [[ -z ${CATEGORY_STATUS[$category]-} ]]; then CATEGORY_ORDER+=("$category"); CATEGORY_STATUS[$category]=PASS; fi
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
@@ -643,7 +672,9 @@ report_finish() {
     local category line first=1 index=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
-    emit ''; emit "Overall: $OVERALL"
+    emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
+    emit 'Wildcard and manual requirements are listed below; they are not counted as passed checks.'
+    emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
         emit 'Detected blockers:'
         for line in "${BLOCKERS[@]}"; do ((index+=1)); emit "$index. $line"; done
@@ -657,7 +688,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.1","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.2","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -669,7 +700,7 @@ report_finish() {
         for category in "${CATEGORY_ORDER[@]}"; do
             ((first)) || printf ','; first=0; json_string "$category"; printf ':'; json_string "${CATEGORY_STATUS[$category]}"
         done
-        printf '},"endpoints":['; first=1
+        printf '},"direct_endpoint_counts":{"pass":%s,"warn":%s,"fail":%s},"endpoints":[' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"; first=1
         while IFS= read -r line; do ((first)) || printf ','; first=0; printf '%s' "$line"; done < "$ENDPOINT_JSON"
         printf '],"allowlist_requirements":'; json_lines "$(printf '%s\n' "${ALLOWLIST[@]}")"
         printf ',"untested_requirements":'; json_lines "$(printf '%s\n' "${UNTESTED[@]}")"
@@ -684,7 +715,7 @@ report_finish() {
 # END GENERATED MODULE: lib/reporting.sh
 
 # Internal limits, seconds. No background probing or package installation.
-TOOL_VERSION=0.1.1
+TOOL_VERSION=0.1.2
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
@@ -741,7 +772,7 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     declare -gA E=() CATEGORY_STATUS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
-    OVERALL=READY; LAST_CATEGORY=''
+    OVERALL=READY; LAST_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}

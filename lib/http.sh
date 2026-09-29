@@ -97,8 +97,13 @@ http_attempt() {
     if [[ $output != *DD_PREFLIGHT_CAPTURE_ERROR* && -n ${E[http_status]} && $verify == 0 ]] && ((rc==0 || rc==63 || (rc==23 && sampled))); then
         E[curl_tls]=PASS; E[http]=PASS
         E[http_detail]='Endpoint reachable; application-level response received; environment route'
-        if ((rc==63 || sampled)); then E[http]=WARN; E[http_detail]='HTTPS response received; body exceeded diagnostic size limit'; fi
-        if ((E[redirect_count]>0)); then E[http]=WARN; add_note 'Redirect observed; confirm final destination with the network team'; fi
+        if ((rc==63 || sampled)); then
+            E[http_detail]='Verified HTTPS response received; diagnostic body sample intentionally capped'
+            add_note 'Response body exceeded checker sample limit; HTTP reachability was already verified'
+        fi
+        if ((E[redirect_count]>0)) && [[ ${2:-origin} != follow ]]; then
+            E[http]=WARN; add_note 'Redirect observed; confirm final destination with the network team'
+        fi
         if ((10#${E[http_status]}>=500)) || [[ ${E[http_status]} == 407 ]]; then E[http]=WARN; add_note 'Service/proxy error response requires review'; fi
     fi
     # Only server/via headers; no cookies, authorization, locations, or raw body saved.
@@ -120,7 +125,7 @@ http_attempt() {
 nonzero_time() { [[ $1 =~ ^[0-9]+\.[0-9]+$ && $1 == *[1-9]* ]]; }
 
 http_check() {
-    local host=$1 attempt key summary
+    local host=$1 attempt key summary origin_http final_authority
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
@@ -138,6 +143,7 @@ http_check() {
         # Keep original endpoint evidence separate from the redirect diagnostic.
         # Re-request the original URL with curl-managed HTTPS-only redirect handling;
         # never parse/replay an untrusted Location header ourselves.
+        origin_http=${E[http]}
         E[http]=WARN
         add_note 'Origin returned a redirect; follow-up is a separate diagnostic, not an origin reachability failure'
         local -A origin=()
@@ -147,6 +153,14 @@ http_check() {
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
             origin[notes]+="; Redirect follow-up ${E[http]}: ${E[http_detail]}; review redirect destination separately"
+        elif [[ $origin_http == PASS && ${E[http]} == PASS && ${E[curl_tls]} == PASS && ${E[redirect_count]} == 1 ]]; then
+            final_authority=${E[final_url]#https://}
+            final_authority=${final_authority%%/*}
+            final_authority=${final_authority%:443}
+            if [[ $final_authority == "$host" ]]; then
+                origin[http]=PASS
+                origin[notes]+='; Single same-host HTTPS redirect verified; no additional destination identified'
+            fi
         fi
         E=()
         for key in "${!origin[@]}"; do E[$key]=${origin[$key]}; done
