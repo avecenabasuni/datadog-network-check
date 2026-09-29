@@ -1,0 +1,317 @@
+"""Offline behavior tests. Python is a development dependency only.
+
+All test artifacts live beneath reports/. No customer endpoints are contacted.
+"""
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+ROOT = Path(__file__).resolve().parents[1]
+SOURCE = 'source ./dd-network-check.sh\ndeclare -A E=()\nreset_result\nport=443; path=/; requirement=required; PROXY_PRESENT=0\n'
+
+
+def bash(code, env=None, cwd=ROOT, stdin=None):
+    return subprocess.run(['bash', '-c', code], cwd=cwd, env=env, input=stdin,
+                          text=True, capture_output=True, timeout=45)
+
+
+class UnitTests(unittest.TestCase):
+    def run_code(self, code):
+        result = bash(SOURCE + code)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        return result.stdout.strip()
+
+    def test_manifests_all_sites(self):
+        self.assertEqual(self.run_code('load_sites && validate_manifest || exit 1; '
+            '[[ ${#SITE_CODES[@]} == 9 && ${#RECORDS[@]} == 59 ]] || exit 1; '
+            'for SITE in "${SITE_CODES[@]}"; do for line in "${RECORDS[@]}"; do '
+            'parse_record "$line"; [[ $test_type == manual || $test_type == excluded ]] && continue; '
+            'h=${template//\\{site\\}/${SITE_DOMAINS[$SITE]}}; '
+            'h=${h//\\{rum\\}/${SITE_RUM[$SITE]}}; h=${h//\\{version\\}/7-75-0}; '
+            'valid_host "${h#\\*.}" || exit 1; done; done; echo OK'), 'OK')
+
+    def test_json_escaping(self):
+        output = self.run_code("json_string $'quotes \" backslash \\\\ tab\\t newline\\n escape\\033'")
+        self.assertEqual(json.loads(output), 'quotes " backslash \\ tab\t newline\n escape')
+
+    def test_safe_url_redaction(self):
+        output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
+        self.assertEqual(output, 'https://example.com/[path omitted]')
+
+    def test_dns_failure(self):
+        output = self.run_code('have() { [[ $1 == getent || $1 == timeout ]]; }; '
+            'timeout() { return 2; }; dns_check missing.invalid; '
+            'echo "${E[dns]} ${E[cname]} ${E[ips]}"')
+        self.assertEqual(output, 'FAIL SKIPPED')
+
+    def test_dns_missing_dig(self):
+        output = self.run_code('have() { [[ $1 == getent || $1 == timeout ]]; }; '
+            'timeout() { printf "192.0.2.1 STREAM test\\n192.0.2.1 DGRAM test\\n2001:db8::1 STREAM test\\n"; }; '
+            'dns_check example.com; echo "${E[dns]} ${E[cname]}"; echo "${E[ips]}"')
+        self.assertEqual(output, 'PASS SKIPPED\n192.0.2.1\n2001:db8::1')
+
+    def test_cname_chain_and_aaaa(self):
+        code = r'''
+have() { [[ $1 == dig ]]; }
+dig() {
+    case "${*: -1}" in
+      A) echo 'example.com. 60 IN A 192.0.2.1';;
+      AAAA) echo 'example.com. 60 IN AAAA 2001:db8::1';;
+      CNAME) echo ';; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 1'
+        [[ " $* " != *' example.com. '* ]] || echo 'example.com. 60 IN CNAME edge.example.com.';;
+    esac
+    return 0
+}
+dns_check example.com; echo "${E[dns]} ${E[cname]}"; echo "${E[cnames]}"; echo "${E[ips]}"
+'''
+        output = self.run_code(code)
+        self.assertIn('PASS PASS\nedge.example.com', output)
+        self.assertIn('2001:db8::1', output)
+
+    def test_cname_servfail(self):
+        output = self.run_code('have() { [[ $1 == dig ]]; }; dig() { echo "status: SERVFAIL"; }; '
+                               'dns_check example.com; echo "${E[dns]} ${E[cname]}"')
+        self.assertEqual(output, 'FAIL WARN')
+
+    def test_tcp_refused_and_timeout(self):
+        for response in ['echo "connection refused"; return 1', 'return 124']:
+            output = self.run_code('E[ips]=192.0.2.1; tcp_connect() { ' + response + '; }; '
+                                  'tcp_check; echo "${E[tcp]} ${E[tcp_attempts]}"')
+            self.assertTrue(output.startswith('FAIL 192.0.2.1 FAIL'), output)
+
+    def test_tcp_mixed_ipv4_ipv6(self):
+        output = self.run_code("E[ips]=$'192.0.2.1\\n2001:db8::1'; "
+            'tcp_connect() { [[ $1 == 192.0.2.1 ]]; }; tcp_check; echo "${E[tcp]} ${E[tcp_ip]}"')
+        self.assertEqual(output, 'WARN 192.0.2.1')
+
+    def test_missing_timeout(self):
+        output = self.run_code('have() { return 1; }; E[ips]=192.0.2.1; tcp_check; echo "${E[tcp]}"')
+        self.assertEqual(output, 'SKIPPED')
+
+    def test_missing_openssl(self):
+        output = self.run_code('have() { [[ $1 != openssl ]]; }; tls_check example.com; echo "${E[tls]} ${E[tls_detail]}"')
+        self.assertIn('SKIPPED', output)
+
+    def test_missing_all_dns_tools(self):
+        output = self.run_code('have() { return 1; }; dns_check example.com; '
+                               'echo "${E[dns]} ${E[cname]}"')
+        self.assertEqual(output, 'SKIPPED SKIPPED')
+
+    def test_nss_dns_disagreement(self):
+        output = self.run_code('have() { [[ $1 != nslookup ]]; }; timeout() { return 2; }; '
+            'dig() { echo "status: NOERROR"; echo "example.com. 60 IN A 192.0.2.1"; }; '
+            'dns_check example.com; echo "${E[dns]} ${E[ips]} ${E[notes]}"')
+        self.assertIn('FAIL 192.0.2.1', output)
+        self.assertIn('resolver paths disagree', output)
+
+    def test_agent_version_derivation(self):
+        for version, expected in [('7.75.0', '7-75-0'), ('7.75.0-rc.1', '')]:
+            output = self.run_code('have() { return 0; }; timeout() { echo "Agent ' + version +
+                ' - Commit: example"; }; detect_agent_version; echo "$AGENT_VERSION"')
+            self.assertEqual(output, expected)
+
+    def test_tls_sni_verification(self):
+        code = r'''
+E[tcp_ip]=2001:db8::1
+openssl() { echo '-verify_hostname'; }
+timeout() {
+ [[ " $* " == *' -servername example.com '* && " $* " == *' -verify_hostname example.com '* && " $* " == *' -verify_return_error '* && " $* " == *' [2001:db8::1]:443 '* ]] || return 1
+ echo 'Verify return code: 0 (ok)'
+}
+tls_check example.com; echo "${E[tls]}"
+'''
+        self.assertEqual(self.run_code(code), 'PASS')
+
+    def http(self, status='403', rc=0, body='HTTP/1.1 403 Forbidden\r\nServer: intake\r\n\r\n', redirects=0):
+        payload = body + '\nDD_PREFLIGHT_META\n' + status + '\nhttps://example.com/\n192.0.2.1\n' + str(redirects) + '\n0\n'
+        # Pass fixture via a shell-quoted heredoc, never execute response content.
+        code = 'curl_probe() { cat <<\'FIXTURE\'\n' + payload + '\nFIXTURE\nreturn ' + str(rc) + '; }; '
+        code += 'http_check example.com; printf "%s\\n" "${E[http]}" "${E[curl_tls]}" "${E[notes]}"'
+        return self.run_code(code)
+
+    def test_http_non_2xx_reachable(self):
+        for status in ['200', '400', '401', '403', '404', '405']:
+            self.assertTrue(self.http(status).startswith('PASS\nPASS'), status)
+
+    def test_http_timeout_not_overridden_by_status(self):
+        self.assertTrue(self.http(rc=28).startswith('FAIL\n'))
+
+    def test_http_tls_failure(self):
+        self.assertTrue(self.http(rc=60).startswith('FAIL\nFAIL'))
+
+    def test_http_redirect_warning(self):
+        self.assertTrue(self.http(redirects=1).startswith('WARN\nPASS'))
+
+    def test_http_capture_limit(self):
+        self.assertTrue(self.http(status='200', rc=63).startswith('WARN\nPASS'))
+
+    def test_http_binary_response(self):
+        result = bash(SOURCE + r'''
+curl_probe() { printf 'HTTP/1.1 200 OK\r\n\r\n\000binary\nDD_PREFLIGHT_META\n200\nhttps://example.com/\n192.0.2.1\n0\n0\n'; }
+http_check example.com; echo "${E[http]}"
+''')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stderr, '')
+        self.assertEqual(result.stdout.strip(), 'PASS')
+
+    def test_curl_does_not_enable_secret_logging(self):
+        output = self.run_code('SSLKEYLOGFILE=/do-not-write; export SSLKEYLOGFILE; '
+            'curl() { [[ -z ${SSLKEYLOGFILE-} ]] || return 1; echo OK; }; curl_probe https://example.com; '
+            '[[ $SSLKEYLOGFILE == /do-not-write ]] || exit 1')
+        self.assertEqual(output, 'OK')
+
+    def test_block_page(self):
+        output = self.http(status='200', body='HTTP/1.1 200 OK\r\n\r\nFortiGate: category blocked')
+        self.assertIn('POSSIBLE SECURITY FILTERING', output)
+        self.assertTrue(output.startswith('WARN\nPASS'))
+
+    def test_weak_denial_not_definitive(self):
+        output = self.http(body='HTTP/1.1 403 Forbidden\r\n\r\nAccess denied')
+        self.assertIn('filtering not established', output)
+        self.assertNotIn('POSSIBLE SECURITY FILTERING', output)
+
+    def test_classification(self):
+        base = 'for k in dns cname tcp tls http; do E[$k]=PASS; done; '
+        self.assertEqual(self.run_code(base + 'classify_result; echo "${E[impact]}"'), 'PASS')
+        self.assertEqual(self.run_code(base + 'E[dns]=FAIL; classify_result; echo "${E[impact]}"'), 'FAIL')
+        self.assertEqual(self.run_code(base + 'E[http]=FAIL; requirement=informational; classify_result; echo "${E[status]} ${E[impact]}"'), 'FAIL WARN')
+        self.assertEqual(self.run_code(base + 'E[tcp]=FAIL; E[curl_tls]=PASS; PROXY_PRESENT=1; classify_result; echo "${E[status]} ${E[impact]}"'), 'FAIL WARN')
+
+    def test_proxy_secrets_withheld(self):
+        output = self.run_code("emit() { echo \"$*\"; }; HTTPS_PROXY='http://user:supersecret@proxy:3128'; "
+                               "NO_PROXY='sensitive.example.com'; proxy_snapshot; echo \"$PROXY_JSON\"")
+        self.assertNotIn('supersecret', output)
+        self.assertNotIn('sensitive', output)
+        self.assertIn('configured (value withheld)', output)
+
+
+class IntegrationTests(unittest.TestCase):
+    def setUp(self):
+        self.directory = tempfile.TemporaryDirectory(prefix='.test-', dir=ROOT / 'reports')
+        self.addCleanup(self.directory.cleanup)
+        self.root = Path(self.directory.name)
+        for name in ['lib', 'config']:
+            shutil.copytree(ROOT / name, self.root / name)
+        shutil.copy2(ROOT / 'dd-network-check.sh', self.root)
+        (self.root / 'reports').mkdir()
+        self.bin = self.root / 'mock-bin'
+        self.bin.mkdir()
+        self.env = {k: v for k, v in os.environ.items() if not k.lower().endswith('_proxy')}
+        self.env['PATH'] = str(self.bin) + ':' + os.environ['PATH']
+        self.env['MOCK_LOG'] = str(self.root / 'calls')
+        self.write_command('getent', 'echo "192.0.2.1 STREAM example.com"')
+        self.write_command('dig', "echo ';; ->>HEADER<<- opcode: QUERY, status: NOERROR, id: 1'")
+        self.write_command('timeout', r'''
+shift 2; shift
+case $1 in
+  getent) shift; getent "$@";;
+  bash) exit 0;;
+  openssl) echo 'Verify return code: 0 (ok)';;
+  datadog-agent) exit 1;;
+  *) exit 1;;
+esac
+''')
+        self.write_command('openssl', "echo '-verify_hostname'")
+        self.write_command('curl', r'''
+printf '%s\n' "$*" >> "$MOCK_LOG"
+printf 'HTTP/1.1 403 Forbidden\r\nServer: intake\r\n\r\n'
+printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
+''')
+
+    def write_command(self, name, body):
+        target = self.bin / name
+        target.write_text('#!/usr/bin/env bash\n' + body + '\n')
+        target.chmod(0o700)
+
+    def manifest(self, extra='', required=True):
+        req = 'required' if required else 'informational'
+        text = '# last_verified_against_datadog_docs=2026-09-29\n'
+        text += f'public|agent|Public HTTPS|example.com|443|https|all|full|{req}|all|/|-|https://example.com/docs\n'
+        (self.root / 'config/endpoints.conf').write_text(text + extra)
+
+    def scan(self, expected, interactive=False):
+        result = bash('./dd-network-check.sh' + ('' if interactive else ' --site us1'), self.env, self.root, '1\n' if interactive else None)
+        self.assertEqual(result.returncode, expected, result.stderr + result.stdout)
+        reports = list((self.root / 'reports').glob('*.json'))
+        if expected == 3:
+            self.assertEqual(reports, [])
+            return result, None
+        self.assertEqual(len(reports), 1)
+        report = json.loads(reports[0].read_text())
+        txt = reports[0].with_suffix('.txt').read_text()
+        self.assertNotIn('\x1b', txt)
+        self.assertEqual(len(report['endpoints']), 1 if 'wildcard' not in txt else 2)
+        self.assertEqual(report['metadata']['hostname'], os.uname().nodename)
+        return result, report
+
+    def test_interactive_report_ready(self):
+        self.manifest()
+        result, report = self.scan(0, interactive=True)
+        self.assertIn('9) US2-FED', result.stdout)
+        self.assertEqual(report['overall_status'], 'READY')
+        self.assertEqual(report['endpoints'][0]['http_result']['http_status'], '403')
+        calls = (self.root / 'calls').read_text()
+        self.assertIn('--disable --silent', calls)
+        self.assertIn('--proto =https --proto-redir =https', calls)
+        self.assertNotIn('--insecure', calls)
+
+    def test_wildcard_never_probed(self):
+        self.manifest('wildcard|agent|Agent wildcard|*.agent.{site}|443|https|all|wildcard|required|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
+        _, report = self.scan(1)
+        self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
+        self.assertNotIn('*.agent', (self.root / 'calls').read_text())
+        self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+
+    def test_malformed_no_network(self):
+        self.manifest('broken|record\n')
+        self.scan(3)
+        self.assertFalse((self.root / 'calls').exists())
+
+    def test_manifest_command_injection_rejected(self):
+        self.manifest('evil|agent|Bad|$(touch hacked).example.com|443|https|all|full|required|all|/|-|https://example.com/docs\n')
+        self.scan(3)
+        self.assertFalse((self.root / 'hacked').exists())
+
+    def test_invalid_port_scope_and_duplicate(self):
+        for record in [
+            'other|agent|Bad|example.com|65536|https|all|full|required|all|/|-|https://example.com/docs',
+            'other|agent|Bad|example.com|443|https|all|full|required||/|-|https://example.com/docs',
+            'other|agent|Bad|example.com|443|https|all|full|required|us1,|/|-|https://example.com/docs',
+            'public|agent|Duplicate|example.com|443|https|all|full|required|all|/|-|https://example.com/docs',
+            'other|agent|Bad|example.com|443|https|all|unknown|required|all|/|-|https://example.com/docs',
+            'other|agent|Bad|{version}.example.com|443|https|all|full|required|all|/|-|https://example.com/docs',
+        ]:
+            with self.subTest(record=record):
+                self.manifest(record + '\n')
+                self.scan(3)
+                self.assertFalse((self.root / 'calls').exists())
+
+    def test_proxy_values_absent_from_reports(self):
+        self.manifest()
+        self.env['HTTPS_PROXY'] = 'http://private-user:secret-value@proxy.example:3128'
+        self.env['NO_PROXY'] = 'private-internal.example'
+        _, report = self.scan(0)
+        content = json.dumps(report)
+        for secret in ['private-user', 'secret-value', 'proxy.example', 'private-internal.example']:
+            self.assertNotIn(secret, content)
+
+    def test_blocked_http_transport(self):
+        self.manifest()
+        self.write_command('curl', 'exit 28')
+        _, report = self.scan(2)
+        self.assertEqual(report['overall_status'], 'BLOCKED')
+
+    def test_informational_failure_warning(self):
+        self.manifest(required=False)
+        self.write_command('curl', 'exit 60')
+        _, report = self.scan(1)
+        self.assertEqual(report['endpoints'][0]['status'], 'FAIL')
+        self.assertEqual(report['endpoints'][0]['impact'], 'WARN')
+
+
+if __name__ == '__main__':
+    unittest.main()
