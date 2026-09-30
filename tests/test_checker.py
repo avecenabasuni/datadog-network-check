@@ -198,7 +198,7 @@ terminal_render_report
 ''')
         self.assertIn('gcr.io', output)
         self.assertIn('eu.gcr.io', output)
-        self.assertEqual(output.count('2 endpoints redirect'), 1)
+        self.assertEqual(output.count('2 redirects; check HTTPS targets'), 1)
         self.assertNotIn('redirected to https://accounts.google.com', output)
 
     def test_terminal_progress_is_silent_when_piped(self):
@@ -505,13 +505,13 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
         self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.3'), 1)
         self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
-        self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', result.stdout)
+        self.assertRegex(result.stdout, r'1 pass.*0 warn.*0 fail.*0 review')
         self.assertRegex(result.stdout, r'PASS\s+example\.com\s+ok\s+ok\s+ok\s+403')
         self.assertNotIn('TLS probe', result.stdout)
         self.assertNotIn('CNAME chain', result.stdout)
         self.assertNotIn('\x1b', result.stdout)
-        self.assertIn('Reports: ' + str(self.root / 'reports'), result.stdout)
-        self.assertIn('  TXT  dd-network-preflight-', result.stdout)
+        self.assertIn('TXT  ' + str(self.root / 'reports'), result.stdout)
+        self.assertIn('JSON ' + str(self.root / 'reports'), result.stdout)
         detailed = next((self.root / 'reports').glob('*.txt')).read_text()
         self.assertIn('TLS probe', detailed)
         self.assertIn('DNS               PASS', detailed)
@@ -534,9 +534,9 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         result, report = self.scan(1)
         summary = result.stdout.split('SUMMARY', 1)[1]
         self.assertIn('READY WITH WARNINGS', summary)
-        self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', summary)
-        self.assertRegex(summary, r'WARN\s+rum')
-        self.assertNotRegex(summary, r'PASS\s+agent')
+        self.assertRegex(summary, r'1 pass.*0 warn.*0 fail.*1 review')
+        self.assertIn('rum: 1 untested requirement', summary)
+        self.assertNotIn('agent:', summary)
         self.assertIn('Manual review: 1 wildcard allowlist', summary)
         self.assertEqual(report['categories'], {'agent': 'PASS', 'rum': 'WARN'})
 
@@ -547,7 +547,7 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
             'browser|rum|RUM intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|Browser path differs|https://example.com/docs\n')
         result, report = self.scan(0)
         self.assertIn('RUM (VM-side only)', result.stdout)
-        self.assertIn('end-user browser connectivity is untested', result.stdout)
+        self.assertIn('end-user browser connectivity untested', result.stdout)
         self.assertEqual(report['endpoints'][0]['classification'], 'SERVER-SIDE SANITY CHECK ONLY')
 
     def test_malformed_no_network(self):
@@ -589,7 +589,7 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         result, report = self.scan(2)
         self.assertEqual(report['overall_status'], 'BLOCKED')
         self.assertIn('HTTP: Connection or request timeout', result.stdout)
-        self.assertIn('BLOCKED', result.stdout)
+        self.assertIn('NOT READY', result.stdout)
         self.assertNotIn('\x1b', result.stdout)
 
     def test_oversize_http_sample_does_not_block_required_endpoint(self):

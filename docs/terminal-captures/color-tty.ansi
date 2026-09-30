@@ -1,0 +1,57 @@
+[38;2;99;44;166m██████╗  █████╗ ████████╗ █████╗ ██████╗  ██████╗  ██████╗
+██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██╔═══██╗██╔════╝
+██║  ██║███████║   ██║   ███████║██║  ██║██║   ██║██║  ███╗
+██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║
+██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝
+╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝
+  N E T W O R K   P R E F L I G H T          v0.1.3
+  ────────────────────────────────────────────────────────────
+[0m  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
+
+  Proxy: none · Tools: curl dig nslookup openssl nc · Scope: all destinations
+  Agent: not determined
+
+  STATUS DESTINATION                                 DNS  TCP  TLS HTTP    
+
+ [1mINSTALLATION[0m [2m────────────────────────────────────────────────────────────[0m  2 ✔
+  [32mPASS  [0m install.datadoghq.com                      [2m  ok   ok   ok 200     [0m ✔
+  [32mPASS  [0m apt.datadoghq.com                          [2m  ok   ok   ok 206     [0m ✔
+
+ [1mAGENT[0m [2m───────────────────────────────────────────────────────────────────[0m  1 ◌
+  [36mREVIEW[0m *.agent.datadoghq.com                      [2m  --   --   -- --      [0m ◌
+[2m       ↳ wildcard allowlist (not tested)[0m
+
+ [1mRUM (VM-side only)[0m [2m────────────────────────────────────────────[0m  1 ✔  1 ⚠  1 ◌
+  [32mPASS  [0m browser-intake-datadoghq.com               [2m  ok   ok   ok 403     [0m ✔
+  [33mWARN  [0m sdk-configuration.browser-intake-datadogh… [2m  ok   ok   ok 403     [0m ⚠
+[2m       ↳ HTTP: Response contains denial/filter wording[0m
+  [36mREVIEW[0m *.browser-intake-datadoghq.com             [2m  --   --   -- --      [0m ◌
+[2m       ↳ wildcard allowlist (not tested)[0m
+
+ [1mCONTAINER REGISTRIES[0m [2m───────────────────────────────────────────────[0m  1 ✔  4 ⚠
+  [33mWARN  [0m registry.datadoghq.com                     [2m  ok   ok   ok 302>200 [0m ⚠
+  [33mWARN  [0m gcr.io                                     [2m  ok   ok   ok 302>200 [0m ⚠
+  [33mWARN  [0m eu.gcr.io                                  [2m  ok   ok   ok 302>200 [0m ⚠
+  [33mWARN  [0m asia.gcr.io                                [2m  ok   ok   ok 302>200 [0m ⚠
+[2m       ↳ 4 redirects; check HTTPS targets in proxy/firewall.[0m
+  [32mPASS  [0m public.ecr.aws                             [2m  ok   ok   ok 401     [0m ✔
+
+╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
+│  [33m⚠  READY WITH WARNINGS[0m                                                      │
+│                                                                              │
+│  ✔ 4 pass    ⚠ 5 warn    ✖ 0 fail    ◌ 2 review                              │
+│                                                                              │
+│  Needs attention                                                             │
+│  [36m  ◌ agent: 1 untested requirement(s); check allowlist or configuration[0m      │
+│  [33m  ⚠ rum: 1 denial/filter response(s); check TXT report[0m                      │
+│  [36m  ◌ rum: 1 untested requirement(s); check allowlist or configuration[0m        │
+│  [33m  ⚠ container registries: 4 redirect target(s) to verify[0m                    │
+│                                                                              │
+│  Manual review: 2 wildcard allowlist; 0 other requirement(s)                 │
+│  RUM: VM-side sanity only; end-user browser connectivity untested            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  TXT  /home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkF
+       Ou3.txt
+  JSON /home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkF
+       Ou3.json

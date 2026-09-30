@@ -1,0 +1,57 @@
+██████╗  █████╗ ████████╗ █████╗ ██████╗  ██████╗  ██████╗
+██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██╔═══██╗██╔════╝
+██║  ██║███████║   ██║   ███████║██║  ██║██║   ██║██║  ███╗
+██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║
+██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝
+╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝
+  N E T W O R K   P R E F L I G H T          v0.1.3
+  ────────────────────────────────────────────────────────────
+  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
+
+  Proxy: none · Tools: curl dig nslookup openssl nc · Scope: all destinations
+  Agent: not determined
+
+  STATUS DESTINATION                                 DNS  TCP  TLS HTTP    
+
+ INSTALLATION ────────────────────────────────────────────────────────────  2 ✔
+  PASS   install.datadoghq.com                        ok   ok   ok 200      ✔
+  PASS   apt.datadoghq.com                            ok   ok   ok 206      ✔
+
+ AGENT ───────────────────────────────────────────────────────────────────  1 ◌
+  REVIEW *.agent.datadoghq.com                        --   --   -- --       ◌
+       ↳ wildcard allowlist (not tested)
+
+ RUM (VM-side only) ────────────────────────────────────────────  1 ✔  1 ⚠  1 ◌
+  PASS   browser-intake-datadoghq.com                 ok   ok   ok 403      ✔
+  WARN   sdk-configuration.browser-intake-datadogh…   ok   ok   ok 403      ⚠
+       ↳ HTTP: Response contains denial/filter wording
+  REVIEW *.browser-intake-datadoghq.com               --   --   -- --       ◌
+       ↳ wildcard allowlist (not tested)
+
+ CONTAINER REGISTRIES ───────────────────────────────────────────────  1 ✔  4 ⚠
+  WARN   registry.datadoghq.com                       ok   ok   ok 302>200  ⚠
+  WARN   gcr.io                                       ok   ok   ok 302>200  ⚠
+  WARN   eu.gcr.io                                    ok   ok   ok 302>200  ⚠
+  WARN   asia.gcr.io                                  ok   ok   ok 302>200  ⚠
+       ↳ 4 redirects; check HTTPS targets in proxy/firewall.
+  PASS   public.ecr.aws                               ok   ok   ok 401      ✔
+
+╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
+│  ⚠  READY WITH WARNINGS                                                      │
+│                                                                              │
+│  ✔ 4 pass    ⚠ 5 warn    ✖ 0 fail    ◌ 2 review                              │
+│                                                                              │
+│  Needs attention                                                             │
+│    ◌ agent: 1 untested requirement(s); check allowlist or configuration      │
+│    ⚠ rum: 1 denial/filter response(s); check TXT report                      │
+│    ◌ rum: 1 untested requirement(s); check allowlist or configuration        │
+│    ⚠ container registries: 4 redirect target(s) to verify                    │
+│                                                                              │
+│  Manual review: 2 wildcard allowlist; 0 other requirement(s)                 │
+│  RUM: VM-side sanity only; end-user browser connectivity untested            │
+╰──────────────────────────────────────────────────────────────────────────────╯
+
+  TXT  /home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkF
+       Ou3.txt
+  JSON /home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkF
+       Ou3.json

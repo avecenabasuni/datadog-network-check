@@ -147,13 +147,16 @@ terminal_wrap() {
     printf '%s%s\n' "$prefix" "$rest"
 }
 terminal_note() {
-    local content=${1//$'\n'/ } marker='->' line width
+    local content=${1//$'\n'/ } marker='->' line width suffix=' ... see TXT report' limit
     local -a lines=()
     terminal_utf8 && marker='↳'
     while IFS= read -r line; do lines+=("$line"); done < <(terminal_wrap "$content" "       $marker " '         ')
     if ((${#lines[@]}>2)); then
         width=$(terminal_width)
-        lines[1]="${lines[1]:0:width-21} ... see TXT report"
+        limit=$((width-${#suffix}))
+        line=${lines[1]:0:limit}
+        [[ $line != *' '* ]] || line=${line% *}
+        lines[1]="$line$suffix"
     fi
     for line in "${lines[@]:0:2}"; do
         if terminal_color_enabled; then printf '\033[2m%s\033[0m\n' "$line"
@@ -296,7 +299,7 @@ terminal_endpoint() {
     done
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
         reasons+="${reasons:+; }Possible security filtering; review the TXT report."
-    elif [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
+    elif [[ ${E[notes]} == *'Denial/filter wording observed'* && $reasons != *'denial/filter wording'* ]]; then
         reasons+="${reasons:+; }Response contains denial/filter wording; review the TXT report."
     fi
     [[ -z $reasons ]] || terminal_note "$reasons"
@@ -312,37 +315,156 @@ terminal_capture_endpoint() {
     state=${E[impact]}
     [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' && ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
     key="$category:$state"
+    # Associative keys need variable expansion here.
+    # shellcheck disable=SC2004
     TERMINAL_COUNTS[$key]=$(( ${TERMINAL_COUNTS[$key]-0}+1 ))
     TERMINAL_NOTE_KEY[index]=''
     if [[ $state == WARN && ${E[http]} == WARN && ${E[redirect_http_detail]} != 'No reachable redirect response' && ${E[redirect_http]} == PASS && ${E[dns]} == PASS && ${E[tcp]} == PASS && ${E[tls]} == PASS && ${E[notes]} != *'Denial/filter wording observed'* ]]; then
         TERMINAL_NOTE_KEY[index]=redirect_allowlist
         key="$category:redirect_allowlist"
+        # shellcheck disable=SC2004
         TERMINAL_GROUP_COUNTS[$key]=$(( ${TERMINAL_GROUP_COUNTS[$key]-0}+1 ))
     fi
 }
 terminal_group_notes() {
     local count=${TERMINAL_GROUP_COUNTS["$1:redirect_allowlist"]-0}
     if ((count>=2)); then
-        terminal_note "$count endpoints redirect to another HTTPS destination. Confirm the redirect targets are allowed by your proxy/firewall."
+        terminal_note "$count redirects; check HTTPS targets in proxy/firewall."
     fi
 }
 terminal_render_report() {
-    local i field category previous=''
+    local i field category
+    local -A last_group_index=()
     ((${#TERMINAL_ORDER[@]})) || return 0
+    for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
+        [[ ${TERMINAL_NOTE_KEY[i]-} != redirect_allowlist ]] || last_group_index[${TERMINAL_ORDER[i]}]=$i
+    done
     terminal_table_header
     LAST_TERMINAL_CATEGORY=''
     for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
         category=${TERMINAL_ORDER[i]}
-        [[ -z $previous || $previous == "$category" ]] || terminal_group_notes "$previous"
         for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
+            # shellcheck disable=SC2004
             E[$field]=${TERMINAL_SNAP["$i:$field"]-}
         done
         TERMINAL_CURRENT_INDEX=$i
         terminal_endpoint
-        previous=$category
+        [[ ${last_group_index[$category]-} != "$i" ]] || terminal_group_notes "$category"
     done
-    terminal_group_notes "$previous"
     TERMINAL_CURRENT_INDEX=''
+}
+terminal_box_border() {
+    local position=$1 width fill left right divider title=''
+    width=$(terminal_width)
+    divider='-'; left='+'; right='+'
+    if terminal_utf8; then
+        divider='─'
+        if [[ $position == top ]]; then left='╭'; right='╮'; else left='╰'; right='╯'; fi
+    fi
+    [[ $position != top ]] || title="${divider} SUMMARY "
+    printf -v fill '%*s' "$((width-2-${#title}))" ''
+    printf '%s%s%s%s\n' "$left" "$title" "${fill// /$divider}" "$right"
+}
+terminal_box_line() {
+    local content=$1 state=${2-} width padding color=''
+    width=$(terminal_width)
+    printf -v padding '%*s' "$((width-4-${#content}))" ''
+    if terminal_color_enabled; then
+        case $state in
+            PASS|READY) color=$'\033[32m';;
+            WARN|'READY WITH WARNINGS') color=$'\033[33m';;
+            REVIEW) color=$'\033[36m';;
+            FAIL|BLOCKED) color=$'\033[31m';;
+        esac
+    fi
+    if terminal_utf8; then printf '│  '; else printf '|  '; fi
+    if [[ -n $color ]]; then printf '%s%s\033[0m' "$color" "$content"
+    else printf '%s' "$content"; fi
+    if terminal_utf8; then printf '%s│\n' "$padding"; else printf '%s|\n' "$padding"; fi
+}
+terminal_box_wrap() {
+    local rest=$1 state=${2-} continuation=${3-} width limit chunk
+    width=$(terminal_width)
+    limit=$((width-4))
+    while ((${#rest}>limit)); do
+        chunk=${rest:0:limit}
+        [[ $chunk != *' '* ]] || chunk=${chunk% *}
+        [[ -n $chunk ]] || chunk=${rest:0:limit}
+        terminal_box_line "$chunk" "$state"
+        rest=${rest:${#chunk}}
+        rest="$continuation${rest# }"
+    done
+    terminal_box_line "$rest" "$state"
+}
+terminal_summary_reason() {
+    local category=$1 state=$2 count=$3 index field
+    if [[ $state == FAIL ]]; then
+        printf '%s blocked endpoint(s); inspect failures in TXT report' "$count"
+        return
+    fi
+    if [[ $state == REVIEW ]]; then
+        printf '%s untested requirement(s); check allowlist or configuration' "$count"
+        return
+    fi
+    if ((${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]-0}>=2)); then
+        printf '%s redirect target(s) to verify' "${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]}"
+        return
+    fi
+    for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
+        [[ ${TERMINAL_ORDER[index]} == "$category" && ${TERMINAL_SNAP["$index:impact"]-} == WARN ]] || continue
+        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Denial/filter wording observed'* ]]; then
+            printf '%s denial/filter response(s); check TXT report' "$count"
+            return
+        fi
+        for field in dns tcp tls http; do
+            if [[ ${TERMINAL_SNAP["$index:$field"]-} == WARN ]]; then
+                printf '%s %s warning(s); check TXT report' "$count" "${field^^}"
+                return
+            fi
+        done
+    done
+    printf '%s endpoint warning(s); check TXT report' "$count"
+}
+terminal_summary() {
+    local category status count review_count=0 attention=0 line
+    local verdict=$OVERALL width
+    width=$(terminal_width)
+    [[ $verdict != BLOCKED ]] || verdict='NOT READY'
+    review_count=$((${#ALLOWLIST[@]}+${#UNTESTED[@]}))
+    printf '\n'
+    terminal_box_border top
+    terminal_box_wrap "$(terminal_symbol "$OVERALL")  $verdict" "$OVERALL"
+    terminal_box_line ''
+    if ((width<64)); then
+        terminal_box_wrap "$(terminal_symbol PASS) $DIRECT_PASS pass   $(terminal_symbol WARN) $DIRECT_WARN warn"
+        terminal_box_wrap "$(terminal_symbol FAIL) $DIRECT_FAIL fail   $(terminal_symbol REVIEW) $review_count review"
+    else
+        terminal_box_wrap "$(terminal_symbol PASS) $DIRECT_PASS pass    $(terminal_symbol WARN) $DIRECT_WARN warn    $(terminal_symbol FAIL) $DIRECT_FAIL fail    $(terminal_symbol REVIEW) $review_count review"
+    fi
+    terminal_box_line ''
+    terminal_box_line 'Needs attention'
+    for category in "${CATEGORY_ORDER[@]}"; do
+        for status in FAIL WARN REVIEW; do
+            count=${TERMINAL_COUNTS["$category:$status"]-0}
+            ((count)) || continue
+            attention=1
+            line="  $(terminal_symbol "$status") ${category//_/ }: $(terminal_summary_reason "$category" "$status" "$count")"
+            terminal_box_wrap "$line" "$status" '    '
+        done
+    done
+    ((attention)) || terminal_box_line '  None'
+    if ((${#BLOCKERS[@]})); then
+        terminal_box_line ''
+        terminal_box_line 'Blockers'
+        for line in "${BLOCKERS[@]}"; do terminal_box_wrap "  - $line" FAIL '    '; done
+    fi
+    terminal_box_line ''
+    terminal_box_wrap "Manual review: ${#ALLOWLIST[@]} wildcard allowlist; ${#UNTESTED[@]} other requirement(s)" '' '  '
+    terminal_box_wrap 'RUM: VM-side sanity only; end-user browser connectivity untested' '' '  '
+    terminal_box_border bottom
+    printf '\n'
+    terminal_wrap "$REPORT_BASE.txt" '  TXT  ' '       '
+    terminal_wrap "$REPORT_BASE.json" '  JSON ' '       '
 }
 report_init() {
     local safe_host stamp
@@ -449,7 +571,7 @@ report_endpoint() {
     [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || UNTESTED+=("${E[hostname]}: ${E[notes]}")
 }
 report_finish() {
-    local category line first=1 index=0 attention=0
+    local category line first=1 index=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
     emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
@@ -493,22 +615,5 @@ report_finish() {
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
     terminal_progress_clear
     terminal_render_report
-    terminal_section SUMMARY
-    terminal_status "$OVERALL" 'Network prerequisites'
-    printf '  Direct endpoint checks: %s PASS, %s WARN, %s FAIL\n' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"
-    for category in "${CATEGORY_ORDER[@]}"; do
-        [[ ${CATEGORY_STATUS[$category]} != PASS ]] || continue
-        if ((attention==0)); then printf '\nAttention by category:\n'; attention=1; fi
-        terminal_status "${CATEGORY_STATUS[$category]}" "${category//_/ }"
-    done
-    if ((${#BLOCKERS[@]})); then
-        printf '\nBlockers:\n'
-        for line in "${BLOCKERS[@]}"; do terminal_wrap "$line" '  - ' '    '; done
-    fi
-    if ((${#ALLOWLIST[@]} || ${#UNTESTED[@]})); then
-        printf '\nManual review: %s wildcard allowlist, %s other untested requirement(s).\n' "${#ALLOWLIST[@]}" "${#UNTESTED[@]}"
-    fi
-    printf 'RUM: VM-side sanity only; end-user browser connectivity is untested.\n'
-    printf '\nReports: %s\n' "${REPORT_BASE%/*}"
-    printf '  TXT  %s.txt\n  JSON %s.json\n' "${REPORT_BASE##*/}" "${REPORT_BASE##*/}"
+    terminal_summary
 }

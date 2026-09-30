@@ -100,29 +100,32 @@ All limits are at the top of `dd-network-check.sh`. Requests are sequential; suc
 
 ## Terminal display and detailed reports
 
-While the scan runs, the terminal uses an ASCII title, compact site menu and bracketed category headings. Endpoint results stay aligned; long hostnames and narrow terminals use a continuation line for the check stages. `WARN` and `FAIL` reasons wrap instead of disappearing off screen. Wildcard or manual entries say `REVIEW` and are marked not tested. RUM rows carry `[VM only]`, and the summary repeats that browser connectivity remains untested. The summary leads with readiness and direct-check counts, then lists only categories needing attention and outstanding manual checks. It shows the report directory once, followed by both filenames. A redirect appears as `HTTP 307>200` when the original endpoint responded 307 and the follow-up returned 200.
+The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Category headings show per-status counts; endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint. Long hostnames are shortened only in the terminal view. `WARN` and `FAIL` reasons use up to two indented lines, while repeated registry redirect warnings share one explanation. Wildcard and manual entries say `REVIEW` and are marked not tested. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
+
+The boxed summary gives the readiness verdict, counts, categories needing attention, manual-review counts, the RUM limitation, and both full report paths. RUM checks are VM-side sanity checks; end-user browser connectivity remains untested. A scan progress counter appears only in an interactive terminal and clears before the results. Terminal color appears only on a TTY, and `NO_COLOR=1` or `TERM=dumb` disables it. Piped output and report files contain no ANSI codes. [Five offline captures](docs/terminal-captures/) show color TTY, `NO_COLOR=1`, `LC_ALL=C`, `COLUMNS=50`, and piped output; regenerate them with `python3 -B tests/capture_terminal.py`.
 
 ```text
-[ API ]
-  STATUS DESTINATION                                    DNS  TCP  TLS HTTP
-  PASS   api.datadoghq.com                               ok   ok   ok 307>200
+  STATUS DESTINATION                                 DNS  TCP  TLS HTTP
 
+ CONTAINER REGISTRIES ------------------------------------------  1 [OK]  4 [!!]
+  WARN   registry.datadoghq.com                       ok   ok   ok 302>206
+  WARN   gcr.io                                       ok   ok   ok 302>200
+       -> 4 redirects; check HTTPS targets in proxy/firewall.
+
++- SUMMARY --------------------------------------------------------------------+
+|  [!!]  READY WITH WARNINGS                                                   |
+|  [OK] 4 pass    [!!] 5 warn    [XX] 0 fail    [??] 2 review                  |
+|  Needs attention                                                             |
+|    [!!] container registries: 4 redirect target(s) to verify               |
+|  Manual review: 2 wildcard allowlist; 0 other requirement(s)               |
+|  RUM: VM-side sanity only; end-user browser connectivity untested           |
 +------------------------------------------------------------------------------+
-| SUMMARY                                                                      |
-+------------------------------------------------------------------------------+
-  READY WITH WARNINGS Network prerequisites
-  Direct endpoint checks: 39 PASS, 7 WARN, 0 FAIL
 
-Attention by category:
-  WARN   rum
-  WARN   container registries
-
-Reports: /home/ave/reports
-  TXT  dd-network-preflight-eminerba-lab-20260930-035702-VRGkFOu3.txt
-  JSON dd-network-preflight-eminerba-lab-20260930-035702-VRGkFOu3.json
+  TXT  /home/ave/reports/dd-network-preflight-eminerba-lab-<stamp>.txt
+  JSON /home/ave/reports/dd-network-preflight-eminerba-lab-<stamp>.json
 ```
 
-This is an illustrative excerpt, not evidence about your VM. The TXT report keeps every DNS/CNAME answer, IP probe, certificate detail and response timing; JSON keeps the machine-readable fields. Terminal color is enabled only when stdout is an interactive terminal. Set `NO_COLOR=1` to suppress color; redirected output and report files contain no ANSI color codes. The compact terminal view and detailed files report the same readiness result.
+This is an illustrative excerpt, not evidence about your VM. The TXT report keeps every DNS/CNAME answer, IP probe, certificate detail and response timing; JSON keeps the machine-readable fields. The compact terminal view and detailed files report the same readiness result.
 
 ## Interpreting results
 
