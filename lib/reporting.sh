@@ -337,6 +337,10 @@ terminal_endpoint() {
         return 0
     fi
     if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        if [[ ${E[notes]} == *'Unexpected redirect target; possible proxy/captive portal block page.'* ]]; then
+            terminal_note 'Unexpected redirect target; possible proxy/captive portal block page.'
+            return 0
+        fi
         if [[ ${E[redirect_http]} == FAIL ]]; then
             terminal_note 'Redirect follow-up failed; see TXT report.'
         else
@@ -372,17 +376,20 @@ terminal_capture_endpoint() {
     # shellcheck disable=SC2004
     TERMINAL_COUNTS[$key]=$(( ${TERMINAL_COUNTS[$key]-0}+1 ))
     TERMINAL_NOTE_KEY[index]=''
-    if [[ $state == WARN && ${E[http]} == WARN && ${E[redirect_http_detail]} != 'No reachable redirect response' && ${E[redirect_http]} == PASS && ${E[dns]} == PASS && ${E[tcp]} == PASS && ${E[tls]} == PASS && ${E[notes]} != *'Denial/filter wording observed'* ]]; then
-        TERMINAL_NOTE_KEY[index]=redirect_allowlist
-        key="$category:redirect_allowlist"
-        # shellcheck disable=SC2004
+    if [[ $state == PASS && $category == container_registries && -n ${E[redirect_host]} && ${E[redirect_http]} == PASS ]]; then
+        key="$category:expected_redirect"
         TERMINAL_GROUP_COUNTS[$key]=$(( ${TERMINAL_GROUP_COUNTS[$key]-0}+1 ))
+        key="$category:${E[redirect_host]}"
+        if [[ -z ${TERMINAL_GROUP_HOST_SEEN[$key]-} ]]; then
+            TERMINAL_GROUP_HOST_SEEN[$key]=1
+            TERMINAL_GROUP_HOSTS[$category]+="${TERMINAL_GROUP_HOSTS[$category]:+, }${E[redirect_host]}"
+        fi
     fi
 }
 terminal_group_notes() {
-    local count=${TERMINAL_GROUP_COUNTS["$1:redirect_allowlist"]-0}
+    local count=${TERMINAL_GROUP_COUNTS["$1:expected_redirect"]-0}
     if ((count)); then
-        terminal_note "$count redirects; check HTTPS targets in proxy/firewall."
+        terminal_note "Allow ${TERMINAL_GROUP_HOSTS[$1]}."
     fi
 }
 terminal_box_border() {
@@ -436,10 +443,6 @@ terminal_summary_reason() {
     fi
     if [[ $state == REVIEW ]]; then
         printf '%s untested requirement(s); check allowlist or configuration' "$count"
-        return
-    fi
-    if ((${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]-0}>=2)); then
-        printf '%s redirect target(s) to verify' "${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]}"
         return
     fi
     for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
@@ -514,7 +517,7 @@ report_init() {
 endpoint_json() {
     local field first=1
     printf '{'
-    for field in id category label hostname port protocol applicable_os test_type requirement source status impact classification notes; do
+    for field in id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
         ((first)) || printf ','; first=0
         json_string "$field"; printf ':'; json_string "${E[$field]-}"
     done
@@ -559,6 +562,7 @@ report_endpoint() {
     fi
     emit ''; emit "${E[hostname]} - $label"
     emit "Classification   ${E[classification]}"
+    emit "Redirect host    ${E[redirect_host]:-none}"
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
@@ -626,7 +630,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.2","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.3","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"

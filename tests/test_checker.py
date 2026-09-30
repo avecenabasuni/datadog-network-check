@@ -195,17 +195,18 @@ class UnitTests(unittest.TestCase):
         self.assertIn('https://accounts.google.com/[path omitted];', output)
         self.assertIn('review destination allowlist', output)
 
-    def test_terminal_groups_matching_redirect_warnings(self):
+    def test_terminal_groups_expected_redirect_hosts_once(self):
         output = self.run_code(r'''
-declare -A TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=()
+declare -A TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=() TERMINAL_GROUP_HOSTS=() TERMINAL_GROUP_HOST_SEEN=()
 declare -a TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
 category=container_registries
 for host in gcr.io eu.gcr.io; do
     reset_result
-    E[hostname]=$host; E[impact]=WARN
-    E[dns]=PASS; E[tcp]=PASS; E[tls]=PASS; E[http]=WARN; E[http_status]=302
+    E[hostname]=$host; E[impact]=PASS
+    E[dns]=PASS; E[tcp]=PASS; E[tls]=PASS; E[http]=PASS; E[http_status]=302
     E[redirect_http]=PASS; E[redirect_http_detail]='Reached redirect'
     E[redirect_http_status]=200
+    E[redirect_host]=accounts.google.com
     E[redirect_final_url]='https://accounts.google.com/[path omitted]'
     terminal_capture_endpoint
     TERMINAL_CURRENT_INDEX=$((${#TERMINAL_ORDER[@]}-1))
@@ -215,8 +216,18 @@ terminal_group_notes "$category"
 ''')
         self.assertIn('gcr.io', output)
         self.assertIn('eu.gcr.io', output)
-        self.assertEqual(output.count('2 redirects; check HTTPS targets'), 1)
+        self.assertEqual(output.count('Allow accounts.google.com.'), 1)
         self.assertNotIn('redirected to https://accounts.google.com', output)
+
+    def test_redirect_group_note_lists_unique_hosts_at_50_columns(self):
+        output = self.run_code("COLUMNS=50; declare -A "
+            "TERMINAL_GROUP_COUNTS=([container_registries:expected_redirect]=3) "
+            "TERMINAL_GROUP_HOSTS=([container_registries]='docs.datadoghq.com, "
+            "accounts.google.com, www.docker.com'); terminal_group_notes container_registries")
+        for host in ('docs.datadoghq.com', 'accounts.google.com', 'www.docker.com'):
+            self.assertIn(host, output)
+        self.assertLessEqual(len(output.splitlines()), 2)
+        self.assertLessEqual(max(map(len, output.splitlines())), 50)
 
     def test_terminal_progress_is_silent_when_piped(self):
         output = self.run_code('TERMINAL_TTY=0; TERMINAL_PROGRESS_DONE=1; '

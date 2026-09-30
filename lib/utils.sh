@@ -51,7 +51,7 @@ reset_result() {
        [redirect_count]=0 [server]='' [via]='' [curl_exit]='' [curl_tls]=SKIPPED
        [http_attempts]='' [time_namelookup]='' [time_connect]='' [time_appconnect]='' [time_starttransfer]='' [time_total]=''
        [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
-       [redirect_http_status]='' [redirect_final_url]='' [redirect_remote_ip]=''
+       [redirect_http_status]='' [redirect_final_url]='' [redirect_host]='' [redirect_remote_ip]=''
        [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }

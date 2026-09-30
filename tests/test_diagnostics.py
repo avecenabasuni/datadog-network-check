@@ -7,6 +7,20 @@ import test_checker
 class DiagnosticTests(unittest.TestCase):
     run_code = test_checker.UnitTests.run_code
 
+    def test_expected_redirect_host_map(self):
+        output = self.run_code('for host in registry.datadoghq.com gcr.io eu.gcr.io '
+            'asia.gcr.io us-docker.pkg.dev docker.io example.com; do '
+            'printf "%s=%s\\n" "$host" "$(expected_redirect_host "$host")"; done')
+        self.assertEqual(output.splitlines(), [
+            'registry.datadoghq.com=docs.datadoghq.com',
+            'gcr.io=accounts.google.com',
+            'eu.gcr.io=accounts.google.com',
+            'asia.gcr.io=accounts.google.com',
+            'us-docker.pkg.dev=accounts.google.com',
+            'docker.io=www.docker.com',
+            'example.com=',
+        ])
+
     def test_tls_timeout_after_negotiation_is_warning(self):
         output = self.run_code(r'''
 E[tcp_ip]=192.0.2.1
@@ -151,6 +165,38 @@ else
  printf '\nDD_PREFLIGHT_META\n307\nhttps://example.com/\n192.0.2.1\n0\n0\n0.010000\n0.240000\n0.540000\n0.700000\n0.710000\n'
 fi
 ''')
+
+    def registry_manifest(self, host):
+        manifest = self.root / 'config/endpoints.conf'
+        manifest.write_text(manifest.read_text().replace('|example.com|443|', f'|{host}|443|')
+                            .replace('|agent|', '|container_registries|'))
+
+    def test_expected_registry_redirect_pass_and_schema(self):
+        self.redirect_fixture(r'''
+printf '\nDD_PREFLIGHT_META\n206\nhttps://docs.datadoghq.com/guide\n192.0.2.2\n1\n0\n0.010000\n0.240000\n0.540000\n0.700000\n0.710000\n'
+''')
+        self.registry_manifest('registry.datadoghq.com')
+        result, report = self.scan(0)
+        endpoint = report['endpoints'][0]
+        self.assertEqual(report['schema_version'], '1.3')
+        self.assertEqual(endpoint['impact'], 'PASS')
+        self.assertEqual(endpoint['redirect_host'], 'docs.datadoghq.com')
+        self.assertEqual(endpoint['http_result']['http_status'], '307')
+        self.assertEqual(endpoint['http_result']['redirect_result']['http_status'], '206')
+        self.assertIn('Redirect host    docs.datadoghq.com',
+                      next((self.root / 'reports').glob('*.txt')).read_text())
+        self.assertIn('Allow docs.datadoghq.com.', result.stdout)
+
+    def test_unexpected_registry_redirect_warns(self):
+        self.redirect_fixture(r'''
+printf '\nDD_PREFLIGHT_META\n200\nhttps://login.example.com/blocked\n192.0.2.2\n1\n0\n0.010000\n0.240000\n0.540000\n0.700000\n0.710000\n'
+''')
+        self.registry_manifest('gcr.io')
+        result, report = self.scan(1)
+        endpoint = report['endpoints'][0]
+        self.assertEqual(endpoint['impact'], 'WARN')
+        self.assertEqual(endpoint['redirect_host'], 'login.example.com')
+        self.assertIn('Unexpected redirect target; possible proxy/captive portal block page.', result.stdout)
 
     def test_reachable_307_and_failed_redirect_do_not_block_origin(self):
         self.redirect_fixture(r'''

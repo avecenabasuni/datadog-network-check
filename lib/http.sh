@@ -38,6 +38,21 @@ safe_url() {
     [[ $scheme == https && $authority =~ ^[a-zA-Z0-9.:-]+$ ]] || { printf '[URL withheld]'; return; }
     printf '%s://%s/[path omitted]' "$scheme" "$authority"
 }
+redirect_host_from_url() {
+    local authority=${1#https://}
+    [[ $1 == https://* ]] || return 0
+    authority=${authority%%/*}
+    authority=${authority%:443}
+    authority=${authority%.}
+    printf '%s' "${authority,,}"
+}
+expected_redirect_host() {
+    case $1 in
+        registry.datadoghq.com) printf 'docs.datadoghq.com';;
+        gcr.io|eu.gcr.io|asia.gcr.io|us-docker.pkg.dev) printf 'accounts.google.com';;
+        docker.io) printf 'www.docker.com';;
+    esac
+}
 http_attempt() {
     local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes='' field i
     for field in http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
@@ -125,7 +140,7 @@ http_attempt() {
 nonzero_time() { [[ $1 =~ ^[0-9]+\.[0-9]+$ && $1 == *[1-9]* ]]; }
 
 http_check() {
-    local host=$1 attempt key summary origin_http final_authority
+    local host=$1 attempt key summary origin_http final_authority expected_host
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
@@ -150,6 +165,7 @@ http_check() {
         for key in "${!E[@]}"; do origin[$key]=${E[$key]}; done
         http_attempt "$host" follow
         for key in http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
+        origin[redirect_host]=$(redirect_host_from_url "${E[final_url]}")
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
             origin[notes]+="; Redirect follow-up ${E[http]}: ${E[http_detail]}; review redirect destination separately"
@@ -161,6 +177,15 @@ http_check() {
                 origin[http]=PASS
                 origin[notes]+='; Single same-host HTTPS redirect verified; no additional destination identified'
             fi
+        fi
+        expected_host=$(expected_redirect_host "$host")
+        if [[ -n $expected_host && ${origin[redirect_host]} == "$expected_host" ]]; then
+            if [[ $origin_http == PASS && ${E[http]} == PASS && ${E[curl_tls]} == PASS ]]; then
+                origin[http]=PASS
+                origin[notes]+="; Expected registry redirect to $expected_host confirmed"
+            fi
+        elif [[ -n $expected_host && ${E[http]} == PASS ]]; then
+            origin[notes]+='; Unexpected redirect target; possible proxy/captive portal block page.'
         fi
         E=()
         for key in "${!origin[@]}"; do E[$key]=${origin[$key]}; done

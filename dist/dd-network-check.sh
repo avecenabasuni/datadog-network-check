@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=550714ae8419c46ad7a3ae5bb67649a340bf0b6ed4792fe5782f8bddb56f0745
+# source_sha256=4bee4be813ecf1012531868d10db51a7dd449c8f9dd8ebd5d8941a9c9b82804f
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -61,7 +61,7 @@ reset_result() {
        [redirect_count]=0 [server]='' [via]='' [curl_exit]='' [curl_tls]=SKIPPED
        [http_attempts]='' [time_namelookup]='' [time_connect]='' [time_appconnect]='' [time_starttransfer]='' [time_total]=''
        [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
-       [redirect_http_status]='' [redirect_final_url]='' [redirect_remote_ip]=''
+       [redirect_http_status]='' [redirect_final_url]='' [redirect_host]='' [redirect_remote_ip]=''
        [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }
@@ -428,6 +428,21 @@ safe_url() {
     [[ $scheme == https && $authority =~ ^[a-zA-Z0-9.:-]+$ ]] || { printf '[URL withheld]'; return; }
     printf '%s://%s/[path omitted]' "$scheme" "$authority"
 }
+redirect_host_from_url() {
+    local authority=${1#https://}
+    [[ $1 == https://* ]] || return 0
+    authority=${authority%%/*}
+    authority=${authority%:443}
+    authority=${authority%.}
+    printf '%s' "${authority,,}"
+}
+expected_redirect_host() {
+    case $1 in
+        registry.datadoghq.com) printf 'docs.datadoghq.com';;
+        gcr.io|eu.gcr.io|asia.gcr.io|us-docker.pkg.dev) printf 'accounts.google.com';;
+        docker.io) printf 'www.docker.com';;
+    esac
+}
 http_attempt() {
     local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes='' field i
     for field in http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
@@ -515,7 +530,7 @@ http_attempt() {
 nonzero_time() { [[ $1 =~ ^[0-9]+\.[0-9]+$ && $1 == *[1-9]* ]]; }
 
 http_check() {
-    local host=$1 attempt key summary origin_http final_authority
+    local host=$1 attempt key summary origin_http final_authority expected_host
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
@@ -540,6 +555,7 @@ http_check() {
         for key in "${!E[@]}"; do origin[$key]=${E[$key]}; done
         http_attempt "$host" follow
         for key in http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
+        origin[redirect_host]=$(redirect_host_from_url "${E[final_url]}")
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
             origin[notes]+="; Redirect follow-up ${E[http]}: ${E[http_detail]}; review redirect destination separately"
@@ -551,6 +567,15 @@ http_check() {
                 origin[http]=PASS
                 origin[notes]+='; Single same-host HTTPS redirect verified; no additional destination identified'
             fi
+        fi
+        expected_host=$(expected_redirect_host "$host")
+        if [[ -n $expected_host && ${origin[redirect_host]} == "$expected_host" ]]; then
+            if [[ $origin_http == PASS && ${E[http]} == PASS && ${E[curl_tls]} == PASS ]]; then
+                origin[http]=PASS
+                origin[notes]+="; Expected registry redirect to $expected_host confirmed"
+            fi
+        elif [[ -n $expected_host && ${E[http]} == PASS ]]; then
+            origin[notes]+='; Unexpected redirect target; possible proxy/captive portal block page.'
         fi
         E=()
         for key in "${!origin[@]}"; do E[$key]=${origin[$key]}; done
@@ -897,6 +922,10 @@ terminal_endpoint() {
         return 0
     fi
     if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        if [[ ${E[notes]} == *'Unexpected redirect target; possible proxy/captive portal block page.'* ]]; then
+            terminal_note 'Unexpected redirect target; possible proxy/captive portal block page.'
+            return 0
+        fi
         if [[ ${E[redirect_http]} == FAIL ]]; then
             terminal_note 'Redirect follow-up failed; see TXT report.'
         else
@@ -932,17 +961,20 @@ terminal_capture_endpoint() {
     # shellcheck disable=SC2004
     TERMINAL_COUNTS[$key]=$(( ${TERMINAL_COUNTS[$key]-0}+1 ))
     TERMINAL_NOTE_KEY[index]=''
-    if [[ $state == WARN && ${E[http]} == WARN && ${E[redirect_http_detail]} != 'No reachable redirect response' && ${E[redirect_http]} == PASS && ${E[dns]} == PASS && ${E[tcp]} == PASS && ${E[tls]} == PASS && ${E[notes]} != *'Denial/filter wording observed'* ]]; then
-        TERMINAL_NOTE_KEY[index]=redirect_allowlist
-        key="$category:redirect_allowlist"
-        # shellcheck disable=SC2004
+    if [[ $state == PASS && $category == container_registries && -n ${E[redirect_host]} && ${E[redirect_http]} == PASS ]]; then
+        key="$category:expected_redirect"
         TERMINAL_GROUP_COUNTS[$key]=$(( ${TERMINAL_GROUP_COUNTS[$key]-0}+1 ))
+        key="$category:${E[redirect_host]}"
+        if [[ -z ${TERMINAL_GROUP_HOST_SEEN[$key]-} ]]; then
+            TERMINAL_GROUP_HOST_SEEN[$key]=1
+            TERMINAL_GROUP_HOSTS[$category]+="${TERMINAL_GROUP_HOSTS[$category]:+, }${E[redirect_host]}"
+        fi
     fi
 }
 terminal_group_notes() {
-    local count=${TERMINAL_GROUP_COUNTS["$1:redirect_allowlist"]-0}
+    local count=${TERMINAL_GROUP_COUNTS["$1:expected_redirect"]-0}
     if ((count)); then
-        terminal_note "$count redirects; check HTTPS targets in proxy/firewall."
+        terminal_note "Allow ${TERMINAL_GROUP_HOSTS[$1]}."
     fi
 }
 terminal_box_border() {
@@ -996,10 +1028,6 @@ terminal_summary_reason() {
     fi
     if [[ $state == REVIEW ]]; then
         printf '%s untested requirement(s); check allowlist or configuration' "$count"
-        return
-    fi
-    if ((${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]-0}>=2)); then
-        printf '%s redirect target(s) to verify' "${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]}"
         return
     fi
     for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
@@ -1074,7 +1102,7 @@ report_init() {
 endpoint_json() {
     local field first=1
     printf '{'
-    for field in id category label hostname port protocol applicable_os test_type requirement source status impact classification notes; do
+    for field in id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
         ((first)) || printf ','; first=0
         json_string "$field"; printf ':'; json_string "${E[$field]-}"
     done
@@ -1119,6 +1147,7 @@ report_endpoint() {
     fi
     emit ''; emit "${E[hostname]} - $label"
     emit "Classification   ${E[classification]}"
+    emit "Redirect host    ${E[redirect_host]:-none}"
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
@@ -1186,7 +1215,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.2","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.3","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -1283,7 +1312,7 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
-    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=()
+    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=() TERMINAL_GROUP_HOSTS=() TERMINAL_GROUP_HOST_SEEN=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TICK=0
