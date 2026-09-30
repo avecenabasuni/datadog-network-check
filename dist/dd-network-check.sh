@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=578e861075f1a6a882637706e3d55c5070ed368398b27261efc48006a5adf3f4
+# source_sha256=343273da3ca73d5d38503a57e705fbadffcbf88994b17e6f6d485af5b40a79d0
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -606,7 +606,27 @@ terminal_status() {
     fi
 }
 terminal_narrow() {
-    [[ ${COLUMNS-} =~ ^[0-9]+$ ]] && ((10#$COLUMNS < 80))
+    (($(terminal_width)<80))
+}
+terminal_width() {
+    if [[ -n ${TERMINAL_WIDTH-} ]]; then printf '%s' "$TERMINAL_WIDTH"; return; fi
+    local width=80 measured
+    if [[ ${COLUMNS-} =~ ^[0-9]+$ ]]; then
+        measured=$((10#$COLUMNS))
+        ((measured>=30 && measured<width)) && width=$measured
+    fi
+    if [[ ${TERMINAL_TTY-0} == 1 ]] && command -v tput >/dev/null 2>&1; then
+        measured=$(tput cols 2>/dev/null) || measured=''
+        if [[ $measured =~ ^[0-9]+$ ]] && ((measured>=30 && measured<width)); then width=$measured; fi
+    fi
+    printf '%s' "$width"
+}
+terminal_truncate() {
+    local value=$1 limit=$2 marker='...'
+    terminal_utf8 && marker='…'
+    if ((${#value}<=limit)); then printf '%s' "$value"
+    elif ((limit>${#marker})); then printf '%s%s' "${value:0:limit-${#marker}}" "$marker"
+    else printf '%s' "${value:0:limit}"; fi
 }
 terminal_banner() {
     if terminal_narrow; then
@@ -618,8 +638,8 @@ terminal_banner() {
     fi
 }
 terminal_wrap() {
-    local rest=$1 prefix=$2 continuation=$3 width=80 limit chunk suffix
-    if terminal_narrow; then width=$((10#$COLUMNS)); fi
+    local rest=$1 prefix=$2 continuation=$3 width limit chunk suffix
+    width=$(terminal_width)
     ((width>=30)) || width=30
     while ((${#prefix}+${#rest} > width)); do
         limit=$((width-${#prefix}))
@@ -640,17 +660,35 @@ terminal_wrap() {
     printf '%s%s\n' "$prefix" "$rest"
 }
 terminal_section() {
-    local title=${1//_/ }
+    local title=${1//_/ } status count counts='' divider padding fill width
     if [[ $title == SUMMARY ]] && ! terminal_narrow; then
         printf '\n%s\n' '+------------------------------------------------------------------------------+'
         printf '| %-76s |\n' SUMMARY
         printf '%s\n' '+------------------------------------------------------------------------------+'
-    else
-        printf '\n[ %s ]\n' "${title^^}"
+        return
     fi
-    if [[ $title != SUMMARY && ${TERMINAL_HEADER_SHOWN-} != 1 ]] && ! terminal_narrow; then
-        printf '  %-6s %-45s %4s %4s %4s %s\n' STATUS DESTINATION DNS TCP TLS HTTP
-        TERMINAL_HEADER_SHOWN=1
+    [[ $title != SUMMARY ]] || { printf '\n[ SUMMARY ]\n'; return; }
+    title=${title^^}
+    [[ $1 != rum ]] || title+=' (VM-side only)'
+    if declare -p TERMINAL_COUNTS >/dev/null 2>&1; then
+        for status in PASS WARN FAIL REVIEW; do
+            count=${TERMINAL_COUNTS["$1:$status"]-0}
+            ((count)) && counts+="  $count $(terminal_symbol "$status")"
+        done
+    fi
+    width=$(terminal_width)
+    divider='-'; terminal_utf8 && divider='─'
+    fill=$((width-3-${#title}-${#counts}))
+    if ((fill<3)); then
+        printf '\n %s\n  %s\n' "$title" "${counts#  }"
+        return
+    fi
+    printf -v padding '%*s' "$fill" ''
+    padding=${padding// /$divider}
+    if terminal_color_enabled; then
+        printf '\n \033[1m%s\033[0m \033[2m%s\033[0m%s\n' "$title" "$padding" "$counts"
+    else
+        printf '\n %s %s%s\n' "$title" "$padding" "$counts"
     fi
 }
 terminal_intro() {
@@ -669,8 +707,44 @@ terminal_intro() {
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
 }
+terminal_row() {
+    local state=$1 host=$2 dns=$3 tcp=$4 tls=$5 http=$6 width host_width symbol color='' stages status_field
+    width=$(terminal_width)
+    symbol=$(terminal_symbol "$state")
+    if ((width<64)); then
+        host=$(terminal_truncate "$host" "$((width-14))")
+        terminal_status "$state" "$host"
+        terminal_wrap "DNS $dns  TCP $tcp  TLS $tls  HTTP $http" '        ' '        '
+        return
+    fi
+    host_width=$((width-38))
+    host=$(terminal_truncate "$host" "$host_width")
+    printf -v status_field '%-6s' "$state"
+    printf -v stages '%4s %4s %4s %-8s' "$dns" "$tcp" "$tls" "$http"
+    if terminal_color_enabled; then
+        case $state in
+            PASS) color=$'\033[32m';;
+            WARN) color=$'\033[33m';;
+            REVIEW) color=$'\033[36m';;
+            FAIL) color=$'\033[31m';;
+        esac
+        printf '  %s%s\033[0m %-*s \033[2m%s\033[0m %s\n' "$color" "$status_field" "$host_width" "$host" "$stages" "$symbol"
+    else
+        printf '  %s %-*s %s %s\n' "$status_field" "$host_width" "$host" "$stages" "$symbol"
+    fi
+}
+terminal_table_header() {
+    local width host_width
+    width=$(terminal_width)
+    if ((width<64)); then
+        printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
+    else
+        host_width=$((width-38))
+        printf '\n  %-6s %-*s %4s %4s %4s %-8s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
+    fi
+}
 terminal_endpoint() {
-    local state hint field detail http_display dns_display tcp_display tls_display row vm_note=''
+    local state hint field detail http_display dns_display tcp_display tls_display
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     if [[ $LAST_TERMINAL_CATEGORY != "$category" ]]; then
         terminal_section "$category"
@@ -680,12 +754,8 @@ terminal_endpoint() {
         if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='wildcard allowlist'
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
         else hint='manual target'; fi
-        if terminal_narrow || ((${#E[hostname]} + ${#hint} > 56)); then
-            terminal_status REVIEW "${E[hostname]}"
-            printf '         %s (not tested)\n' "$hint"
-        else
-            terminal_status REVIEW "${E[hostname]}  $hint (not tested)"
-        fi
+        terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
+        terminal_wrap "$hint (not tested)" '       -> ' '          '
         return 0
     fi
     state=${E[impact]}
@@ -696,14 +766,7 @@ terminal_endpoint() {
     dns_display=$(terminal_stage "${E[dns]}")
     tcp_display=$(terminal_stage "${E[tcp]}")
     tls_display=$(terminal_stage "${E[tls]}")
-    [[ ${E[classification]} != 'SERVER-SIDE SANITY CHECK ONLY' ]] || vm_note='  [VM only]'
-    if terminal_narrow || ((${#E[hostname]} > 45)) || [[ -n $vm_note ]]; then
-        terminal_status "$state" "${E[hostname]}"
-        printf '         DNS %s  TCP %s  TLS %s  HTTP %s%s\n' "$dns_display" "$tcp_display" "$tls_display" "$http_display" "$vm_note"
-    else
-        printf -v row '%-45s %4s %4s %4s %s%s' "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display" "$vm_note"
-        terminal_status "$state" "$row"
-    fi
+    terminal_row "$state" "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display"
     [[ $state != PASS ]] || return 0
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
@@ -722,6 +785,32 @@ terminal_endpoint() {
     elif [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
         terminal_wrap 'Response contains denial/filter wording; review the TXT report.' '       ' '             '
     fi
+}
+terminal_capture_endpoint() {
+    local index field state key
+    [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
+    index=${#TERMINAL_ORDER[@]}
+    TERMINAL_ORDER+=("$category")
+    for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
+        TERMINAL_SNAP["$index:$field"]=${E[$field]-}
+    done
+    state=${E[impact]}
+    [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' && ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
+    key="$category:$state"
+    TERMINAL_COUNTS[$key]=$(( ${TERMINAL_COUNTS[$key]-0}+1 ))
+}
+terminal_render_report() {
+    local i field category
+    ((${#TERMINAL_ORDER[@]})) || return 0
+    terminal_table_header
+    LAST_TERMINAL_CATEGORY=''
+    for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
+        category=${TERMINAL_ORDER[i]}
+        for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
+            E[$field]=${TERMINAL_SNAP["$i:$field"]-}
+        done
+        terminal_endpoint
+    done
 }
 report_init() {
     local safe_host stamp
@@ -802,7 +891,7 @@ report_endpoint() {
     fi
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
-    terminal_endpoint
+    terminal_capture_endpoint
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
         case ${E[status]} in
@@ -868,6 +957,7 @@ report_finish() {
     [[ ! -e $REPORT_BASE.txt && ! -e $REPORT_BASE.json ]] || return 1
     mv -- "$TXT_REPORT" "$REPORT_BASE.txt" && mv -- "$JSON_REPORT" "$REPORT_BASE.json" || return 1
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
+    terminal_render_report
     terminal_section SUMMARY
     terminal_status "$OVERALL" 'Network prerequisites'
     printf '  Direct endpoint checks: %s PASS, %s WARN, %s FAIL\n' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"
@@ -910,6 +1000,8 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
+    TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
+    TERMINAL_WIDTH=$(terminal_width)
     terminal_banner
     if [[ -z $SITE ]]; then
         printf '\n[ SELECT DATADOG SITE ]\n'; i=0
@@ -953,7 +1045,8 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
-    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
+    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=()
+    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result

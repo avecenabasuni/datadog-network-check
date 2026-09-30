@@ -37,6 +37,8 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
+    TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
+    TERMINAL_WIDTH=$(terminal_width)
     terminal_banner
     if [[ -z $SITE ]]; then
         printf '\n[ SELECT DATADOG SITE ]\n'; i=0
@@ -80,7 +82,8 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
-    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=()
+    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=()
+    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result

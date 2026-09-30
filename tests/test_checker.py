@@ -86,7 +86,7 @@ class UnitTests(unittest.TestCase):
             "E[dns]=PASS; E[tcp]=PASS; E[tls]=PASS; E[http]=WARN; E[impact]=WARN; "
             "E[http_status]=307; E[redirect_http_status]=200; E[redirect_http]=PASS; "
             "E[redirect_http_detail]='Reached redirect'; E[redirect_final_url]='https://example.com/[path omitted]'; "
-            "E[http_detail]='Redirect'; terminal_endpoint")
+            "E[http_detail]='Redirect'; terminal_table_header; terminal_endpoint")
         self.assertIn('STATUS DESTINATION', output)
         self.assertRegex(output, r'WARN\s+api\.datadoghq\.com\s+ok\s+ok\s+ok\s+307>200')
         self.assertIn('HTTP: redirected to https://example.com/[path omitted]', output)
@@ -97,8 +97,9 @@ class UnitTests(unittest.TestCase):
                 f"E[hostname]={hostname}; E[dns]=PASS; E[tcp]=PASS; "
                 "E[tls]=SKIPPED; E[http]=PASS; E[http_status]=403; terminal_endpoint")
         wide = self.run_code(code)
-        self.assertIn(hostname, wide)
-        self.assertIn('DNS ok  TCP ok  TLS --  HTTP 403', wide)
+        self.assertIn('instrumentation-telemetry-intake.datadogh', wide)
+        self.assertNotIn(hostname, wide)
+        self.assertIn('ok   ok   -- 403', wide)
         narrow = self.run_code('COLUMNS=60; ' + code)
         self.assertIn(hostname, narrow)
         self.assertNotIn('STATUS DESTINATION', narrow)
@@ -111,6 +112,13 @@ class UnitTests(unittest.TestCase):
         self.assertIn('REVIEW', output)
         self.assertIn('wildcard allowlist (not tested)', output)
         self.assertNotIn('DNS ok', output)
+        self.assertLessEqual(max(map(len, output.splitlines())), 80)
+
+    def test_terminal_category_header_uses_endpoint_counts(self):
+        output = self.run_code("declare -A TERMINAL_COUNTS=([agent:PASS]=2 [agent:REVIEW]=3); "
+            "terminal_section agent")
+        self.assertIn('AGENT', output)
+        self.assertRegex(output, r'2\s+[^\s]+\s+3\s+[^\s]+')
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
     def test_terminal_wraps_long_diagnostic_at_80_columns(self):
@@ -461,7 +469,7 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
             '# last_verified_against_datadog_docs=2026-09-29\n'
             'browser|rum|RUM intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|Browser path differs|https://example.com/docs\n')
         result, report = self.scan(0)
-        self.assertIn('[VM only]', result.stdout)
+        self.assertIn('RUM (VM-side only)', result.stdout)
         self.assertIn('end-user browser connectivity is untested', result.stdout)
         self.assertEqual(report['endpoints'][0]['classification'], 'SERVER-SIDE SANITY CHECK ONLY')
 
