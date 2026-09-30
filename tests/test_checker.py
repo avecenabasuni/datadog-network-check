@@ -141,7 +141,7 @@ class UnitTests(unittest.TestCase):
             "E[http_detail]='Redirect'; terminal_table_header; terminal_endpoint")
         self.assertIn('STATUS DESTINATION', output)
         self.assertRegex(output, r'WARN\s+api\.datadoghq\.com\s+ok\s+ok\s+ok\s+307>200')
-        self.assertIn('HTTP: redirected to https://example.com/[path omitted]', output)
+        self.assertIn('Redirect follow-up needs review; see TXT report.', output)
 
     def test_terminal_long_and_narrow_rows_keep_full_hostname(self):
         hostname = 'instrumentation-telemetry-intake.datadoghq.com'
@@ -149,20 +149,33 @@ class UnitTests(unittest.TestCase):
                 f"E[hostname]={hostname}; E[dns]=PASS; E[tcp]=PASS; "
                 "E[tls]=SKIPPED; E[http]=PASS; E[http_status]=403; terminal_endpoint")
         wide = self.run_code(code)
-        self.assertIn('instrumentation-telemetry-intake.datadogh', wide)
-        self.assertNotIn(hostname, wide)
+        self.assertIn(hostname, wide)
         self.assertIn('ok   ok   -- 403', wide)
+        self.assertLessEqual(max(map(len, wide.splitlines())), 80)
         narrow = self.run_code('COLUMNS=60; ' + code)
         self.assertIn(hostname, narrow)
         self.assertNotIn('STATUS DESTINATION', narrow)
         self.assertIn('DNS ok  TCP ok  TLS --  HTTP 403', narrow)
+        very_narrow = self.run_code('COLUMNS=50; ' + code)
+        self.assertIn('\u2026', very_narrow)
+        self.assertIn('intake.datadoghq.com', very_narrow)
+        self.assertIn(hostname, very_narrow)
+        self.assertLessEqual(max(map(len, very_narrow.splitlines())), 50)
+
+    def test_notes_end_in_a_complete_sentence(self):
+        output = self.run_code("COLUMNS=50; terminal_note 'This diagnostic has many clauses and "
+            "details that would otherwise be cut off in the middle of a sentence, "
+            "so the concise fallback should be shown instead.'")
+        self.assertIn('See TXT report for diagnostic details.', output)
+        self.assertNotIn('...', output)
+        self.assertLessEqual(len(output.splitlines()), 2)
 
     def test_terminal_review_is_explicitly_untested(self):
         output = self.run_code("category=agent; LAST_TERMINAL_CATEGORY=''; "
             "E[hostname]='*.agent.datadoghq.com'; E[classification]='ALLOWLIST REQUIREMENT'; "
             "terminal_endpoint")
         self.assertIn('REVIEW', output)
-        self.assertIn('wildcard allowlist (not tested)', output)
+        self.assertIn('Wildcard allowlist; not tested.', output)
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 

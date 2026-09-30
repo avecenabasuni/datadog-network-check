@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=1e65766a4edfd18f3e06108119acb764bc247ae87d34a88f79395c4a29305792
+# source_sha256=550714ae8419c46ad7a3ae5bb67649a340bf0b6ed4792fe5782f8bddb56f0745
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -628,6 +628,16 @@ terminal_truncate() {
     elif ((limit>${#marker})); then printf '%s%s' "${value:0:limit-${#marker}}" "$marker"
     else printf '%s' "${value:0:limit}"; fi
 }
+terminal_middle_host() {
+    local value=$1 limit=$2 marker='...' room suffix prefix
+    terminal_utf8 && marker='…'
+    if ((${#value}<=limit)); then printf '%s' "$value"; return; fi
+    room=$((limit-${#marker}))
+    if ((room<2)); then printf '%s' "$marker"; return; fi
+    suffix=$((room*2/3))
+    prefix=$((room-suffix))
+    printf '%s%s%s' "${value:0:prefix}" "$marker" "${value: -suffix}"
+}
 terminal_banner() {
     local width context mark divider spaces gap version="v$TOOL_VERSION"
     [[ ${TERMINAL_NO_BANNER-0} != 1 ]] || return 0
@@ -707,21 +717,33 @@ terminal_wrap() {
     printf '%s%s\n' "$prefix" "$rest"
 }
 terminal_note() {
-    local content=${1//$'\n'/ } marker='->' line width suffix=' ... see TXT report' limit
+    local content=${1//$'\n'/ } marker='->' line
     local -a lines=()
     terminal_utf8 && marker='↳'
     while IFS= read -r line; do lines+=("$line"); done < <(terminal_wrap "$content" "       $marker " '         ')
     if ((${#lines[@]}>2)); then
-        width=$(terminal_width)
-        limit=$((width-${#suffix}))
-        line=${lines[1]:0:limit}
-        [[ $line != *' '* ]] || line=${line% *}
-        lines[1]="$line$suffix"
+        lines=()
+        while IFS= read -r line; do lines+=("$line"); done < <(terminal_wrap 'See TXT report for diagnostic details.' "       $marker " '         ')
     fi
     for line in "${lines[@]:0:2}"; do
         if terminal_color_enabled; then printf '\033[2m%s\033[0m\n' "$line"
         else printf '%s\n' "$line"; fi
     done
+}
+terminal_full_host_note() {
+    local marker='->' line prefix continuation='         ' width
+    terminal_utf8 && marker='↳'
+    prefix="       $marker "
+    width=$(terminal_width)
+    if ((${#prefix}+${#1}>width && ${#1}+${#marker}+2<=width)); then
+        prefix=" $marker "
+    elif ((${#prefix}+${#1}>width && ${#1}+${#marker}<=width)); then
+        prefix=$marker
+    fi
+    while IFS= read -r line; do
+        if terminal_color_enabled; then printf '\033[2m%s\033[0m\n' "$line"
+        else printf '%s\n' "$line"; fi
+    done < <(terminal_wrap "$1" "$prefix" "$continuation")
 }
 terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
@@ -801,17 +823,21 @@ terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
 }
 terminal_row() {
-    local state=$1 host=$2 dns=$3 tcp=$4 tls=$5 http=$6 width host_width symbol color='' stages status_field
+    local state=$1 host=$2 dns=$3 tcp=$4 tls=$5 http=$6 width host_width shown color='' stages status_field
     width=$(terminal_width)
-    symbol=$(terminal_symbol "$state")
     if ((width<64)); then
-        host=$(terminal_truncate "$host" "$((width-14))")
-        terminal_status "$state" "$host"
+        shown=$(terminal_middle_host "$host" "$((width-9))")
+        if terminal_color_enabled; then
+            case $state in PASS) color=$'\033[32m';; WARN) color=$'\033[33m';; REVIEW) color=$'\033[36m';; FAIL) color=$'\033[31m';; esac
+        fi
+        if [[ -n $color ]]; then printf '  %s%-6s\033[0m %s\n' "$color" "$state" "$shown"
+        else printf '  %-6s %s\n' "$state" "$shown"; fi
         terminal_wrap "DNS $dns  TCP $tcp  TLS $tls  HTTP $http" '        ' '        '
+        [[ $shown == "$host" ]] || terminal_full_host_note "$host"
         return
     fi
-    host_width=$((width-38))
-    host=$(terminal_truncate "$host" "$host_width")
+    host_width=$((width-33))
+    shown=$(terminal_middle_host "$host" "$host_width")
     printf -v status_field '%-6s' "$state"
     printf -v stages '%4s %4s %4s %-8s' "$dns" "$tcp" "$tls" "$http"
     if terminal_color_enabled; then
@@ -821,10 +847,11 @@ terminal_row() {
             REVIEW) color=$'\033[36m';;
             FAIL) color=$'\033[31m';;
         esac
-        printf '  %s%s\033[0m %-*s \033[2m%s\033[0m %s\n' "$color" "$status_field" "$host_width" "$host" "$stages" "$symbol"
+        printf '  %s%s\033[0m %-*s \033[2m%s\033[0m\n' "$color" "$status_field" "$host_width" "$shown" "$stages"
     else
-        printf '  %s %-*s %s %s\n' "$status_field" "$host_width" "$host" "$stages" "$symbol"
+        printf '  %s %-*s %s\n' "$status_field" "$host_width" "$shown" "$stages"
     fi
+    [[ $shown == "$host" ]] || terminal_full_host_note "$host"
 }
 terminal_table_header() {
     local width host_width
@@ -832,20 +859,20 @@ terminal_table_header() {
     if ((width<64)); then
         printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
     else
-        host_width=$((width-38))
+        host_width=$((width-33))
         printf '\n  %-6s %-*s %4s %4s %4s %-8s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
     fi
 }
 terminal_endpoint() {
-    local state hint field detail http_display dns_display tcp_display tls_display reasons=''
+    local state hint field detail http_display dns_display tcp_display tls_display
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
     if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='wildcard allowlist'
-        elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
-        else hint='manual target'; fi
+        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Wildcard allowlist; not tested.'
+        elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
+        else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
-        terminal_note "$hint (not tested)"
+        terminal_note "$hint"
         return 0
     fi
     state=${E[impact]}
@@ -861,25 +888,34 @@ terminal_endpoint() {
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
         if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist ]]; then return 0; fi
     fi
+    if [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
+        terminal_note 'Reachable, but response contains denial/filter wording; see TXT report.'
+        return 0
+    fi
+    if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
+        terminal_note 'Possible security filtering; see TXT report.'
+        return 0
+    fi
+    if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+        if [[ ${E[redirect_http]} == FAIL ]]; then
+            terminal_note 'Redirect follow-up failed; see TXT report.'
+        else
+            terminal_note 'Redirect follow-up needs review; see TXT report.'
+        fi
+        return 0
+    fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
         [[ $field != cname || ${E[cname]} != SKIPPED ]] || continue
         detail=${E[${field}_detail]}
-        if [[ $field == http && ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
-            if [[ ${E[redirect_http]} == PASS ]]; then
-                detail="redirected to ${E[redirect_final_url]}; review destination allowlist"
-            else
-                detail="redirect follow-up ${E[redirect_http]}: ${E[redirect_http_detail]} (${E[redirect_final_url]})"
-            fi
+        if ((${#detail}>64)); then
+            terminal_note "${field^^} check needs review; see TXT report."
+        else
+            terminal_note "${field^^}: ${detail%.}."
         fi
-        reasons+="${reasons:+; }${field^^}: $detail"
+        return 0
     done
-    if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
-        reasons+="${reasons:+; }Possible security filtering; review the TXT report."
-    elif [[ ${E[notes]} == *'Denial/filter wording observed'* && $reasons != *'denial/filter wording'* ]]; then
-        reasons+="${reasons:+; }Response contains denial/filter wording; review the TXT report."
-    fi
-    [[ -z $reasons ]] || terminal_note "$reasons"
+    terminal_note 'Review this endpoint in the TXT report.'
 }
 terminal_capture_endpoint() {
     local index field state key

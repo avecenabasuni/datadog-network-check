@@ -167,7 +167,7 @@ exit 28
         self.assertEqual(http['redirect_result']['remote_ip'], '192.0.2.2')
         self.assertEqual(http['redirect_result']['curl_exit'], '28')
         self.assertNotIn('secret=withheld', result.stdout)
-        self.assertIn('redirect follow-up FAIL', result.stdout)
+        self.assertIn('Redirect follow-up failed; see TXT report.', result.stdout)
         self.assertEqual((self.root / 'calls').read_text().count('--disable --silent'), 2)
 
     def test_redirect_certificate_failure_remains_visible(self):
