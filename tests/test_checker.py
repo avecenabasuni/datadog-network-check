@@ -129,6 +129,32 @@ class UnitTests(unittest.TestCase):
         self.assertIn('https://accounts.google.com/[path omitted];', output)
         self.assertIn('review destination allowlist', output)
 
+    def test_terminal_groups_matching_redirect_warnings(self):
+        output = self.run_code(r'''
+declare -A TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=()
+declare -a TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
+category=container_registries
+for host in gcr.io eu.gcr.io; do
+    reset_result
+    E[hostname]=$host; E[impact]=WARN
+    E[dns]=PASS; E[tcp]=PASS; E[tls]=PASS; E[http]=WARN; E[http_status]=302
+    E[redirect_http]=PASS; E[redirect_http_detail]='Reached redirect'
+    E[redirect_http_status]=200
+    E[redirect_final_url]='https://accounts.google.com/[path omitted]'
+    terminal_capture_endpoint
+done
+terminal_render_report
+''')
+        self.assertIn('gcr.io', output)
+        self.assertIn('eu.gcr.io', output)
+        self.assertEqual(output.count('2 endpoints redirect'), 1)
+        self.assertNotIn('redirected to https://accounts.google.com', output)
+
+    def test_terminal_progress_is_silent_when_piped(self):
+        output = self.run_code('TERMINAL_TTY=0; TERMINAL_PROGRESS_DONE=1; '
+            'TERMINAL_PROGRESS_TOTAL=3; terminal_progress; terminal_progress_clear')
+        self.assertEqual(output, '')
+
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
         self.assertEqual(output, 'https://example.com/[path omitted]')

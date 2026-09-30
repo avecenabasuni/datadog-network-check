@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=343273da3ca73d5d38503a57e705fbadffcbf88994b17e6f6d485af5b40a79d0
+# source_sha256=105b974122ede292ae09c034848aa0d63bfc0a9c8258f1eaf7d197bc8b764969
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -659,6 +659,32 @@ terminal_wrap() {
     done
     printf '%s%s\n' "$prefix" "$rest"
 }
+terminal_note() {
+    local content=${1//$'\n'/ } marker='->' line width
+    local -a lines=()
+    terminal_utf8 && marker='↳'
+    while IFS= read -r line; do lines+=("$line"); done < <(terminal_wrap "$content" "       $marker " '         ')
+    if ((${#lines[@]}>2)); then
+        width=$(terminal_width)
+        lines[1]="${lines[1]:0:width-21} ... see TXT report"
+    fi
+    for line in "${lines[@]:0:2}"; do
+        if terminal_color_enabled; then printf '\033[2m%s\033[0m\n' "$line"
+        else printf '%s\n' "$line"; fi
+    done
+}
+terminal_progress() {
+    [[ ${TERMINAL_TTY-0} == 1 && ${TERM-} != dumb ]] || return 0
+    local width
+    width=$(terminal_width)
+    printf '\r%-*.*s\r' "$((width-1))" "$((width-1))" "Checking destinations: $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL"
+}
+terminal_progress_clear() {
+    [[ ${TERMINAL_TTY-0} == 1 && ${TERM-} != dumb ]] || return 0
+    local width
+    width=$(terminal_width)
+    printf '\r%*s\r' "$((width-1))" ''
+}
 terminal_section() {
     local title=${1//_/ } status count counts='' divider padding fill width
     if [[ $title == SUMMARY ]] && ! terminal_narrow; then
@@ -744,7 +770,7 @@ terminal_table_header() {
     fi
 }
 terminal_endpoint() {
-    local state hint field detail http_display dns_display tcp_display tls_display
+    local state hint field detail http_display dns_display tcp_display tls_display reasons=''
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     if [[ $LAST_TERMINAL_CATEGORY != "$category" ]]; then
         terminal_section "$category"
@@ -755,7 +781,7 @@ terminal_endpoint() {
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
         else hint='manual target'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
-        terminal_wrap "$hint (not tested)" '       -> ' '          '
+        terminal_note "$hint (not tested)"
         return 0
     fi
     state=${E[impact]}
@@ -768,8 +794,12 @@ terminal_endpoint() {
     tls_display=$(terminal_stage "${E[tls]}")
     terminal_row "$state" "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display"
     [[ $state != PASS ]] || return 0
+    if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
+        if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist && ${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]-0} -ge 2 ]]; then return 0; fi
+    fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
+        [[ $field != cname || ${E[cname]} != SKIPPED ]] || continue
         detail=${E[${field}_detail]}
         if [[ $field == http && ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
             if [[ ${E[redirect_http]} == PASS ]]; then
@@ -778,13 +808,14 @@ terminal_endpoint() {
                 detail="redirect follow-up ${E[redirect_http]}: ${E[redirect_http_detail]} (${E[redirect_final_url]})"
             fi
         fi
-        terminal_wrap "${field^^}: $detail" '       ' '             '
+        reasons+="${reasons:+; }${field^^}: $detail"
     done
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
-        terminal_wrap 'Possible security filtering; review the TXT report.' '       ' '             '
+        reasons+="${reasons:+; }Possible security filtering; review the TXT report."
     elif [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
-        terminal_wrap 'Response contains denial/filter wording; review the TXT report.' '       ' '             '
+        reasons+="${reasons:+; }Response contains denial/filter wording; review the TXT report."
     fi
+    [[ -z $reasons ]] || terminal_note "$reasons"
 }
 terminal_capture_endpoint() {
     local index field state key
@@ -798,19 +829,36 @@ terminal_capture_endpoint() {
     [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' && ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
     key="$category:$state"
     TERMINAL_COUNTS[$key]=$(( ${TERMINAL_COUNTS[$key]-0}+1 ))
+    TERMINAL_NOTE_KEY[index]=''
+    if [[ $state == WARN && ${E[http]} == WARN && ${E[redirect_http_detail]} != 'No reachable redirect response' && ${E[redirect_http]} == PASS && ${E[dns]} == PASS && ${E[tcp]} == PASS && ${E[tls]} == PASS && ${E[notes]} != *'Denial/filter wording observed'* ]]; then
+        TERMINAL_NOTE_KEY[index]=redirect_allowlist
+        key="$category:redirect_allowlist"
+        TERMINAL_GROUP_COUNTS[$key]=$(( ${TERMINAL_GROUP_COUNTS[$key]-0}+1 ))
+    fi
+}
+terminal_group_notes() {
+    local count=${TERMINAL_GROUP_COUNTS["$1:redirect_allowlist"]-0}
+    if ((count>=2)); then
+        terminal_note "$count endpoints redirect to another HTTPS destination. Confirm the redirect targets are allowed by your proxy/firewall."
+    fi
 }
 terminal_render_report() {
-    local i field category
+    local i field category previous=''
     ((${#TERMINAL_ORDER[@]})) || return 0
     terminal_table_header
     LAST_TERMINAL_CATEGORY=''
     for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
         category=${TERMINAL_ORDER[i]}
+        [[ -z $previous || $previous == "$category" ]] || terminal_group_notes "$previous"
         for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
             E[$field]=${TERMINAL_SNAP["$i:$field"]-}
         done
+        TERMINAL_CURRENT_INDEX=$i
         terminal_endpoint
+        previous=$category
     done
+    terminal_group_notes "$previous"
+    TERMINAL_CURRENT_INDEX=''
 }
 report_init() {
     local safe_host stamp
@@ -892,6 +940,8 @@ report_endpoint() {
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     terminal_capture_endpoint
+    ((TERMINAL_PROGRESS_DONE+=1))
+    terminal_progress
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
         case ${E[status]} in
@@ -957,6 +1007,7 @@ report_finish() {
     [[ ! -e $REPORT_BASE.txt && ! -e $REPORT_BASE.json ]] || return 1
     mv -- "$TXT_REPORT" "$REPORT_BASE.txt" && mv -- "$JSON_REPORT" "$REPORT_BASE.json" || return 1
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
+    terminal_progress_clear
     terminal_render_report
     terminal_section SUMMARY
     terminal_status "$OVERALL" 'Network prerequisites'
@@ -1045,9 +1096,11 @@ main() {
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
-    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=()
-    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=()
+    declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=()
+    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
+    TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TOTAL=${#RECORDS[@]}
+    terminal_progress
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}
