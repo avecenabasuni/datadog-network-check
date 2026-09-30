@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# E is a caller-owned associative array; ShellCheck reads its keys as variables.
+# shellcheck disable=SC2154
 dns_check() {
     local host=$1 output='' ip rc=0 current=$1 next depth answer seen=" $1 "
     if have getent && have timeout; then

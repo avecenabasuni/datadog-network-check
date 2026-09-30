@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# E is a caller-owned associative array; its keys and indexes are not arithmetic variables.
+# shellcheck disable=SC2154,SC2004
 # Never use --fail, --insecure, credentials, verbose traces, or a user's curlrc.
 # Body/headers stay in bounded memory and are discarded after classification.
 curl_probe() (
@@ -127,7 +129,7 @@ http_attempt() {
     E[via]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^via:/{v=substr($0,5)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
     low=${body,,}; vendor=''; generic=0
     case $low in *fortigate*|*fortinet*) vendor=Fortinet;; *zscaler*) vendor=Zscaler;; *'palo alto'*) vendor='Palo Alto';; esac
-    case $low in *blocked*|*'web filter'*|*'access denied'*|*'category blocked'*) generic=1;; esac
+    case $low in *blocked*|*'web filter'*|*'access denied'*) generic=1;; esac
     if [[ -n $vendor ]] && ((generic)); then
         [[ ${E[http]} == FAIL ]] || E[http]=WARN
         add_note "POSSIBLE SECURITY FILTERING: $vendor and denial/filter signature detected; not definitive proof"

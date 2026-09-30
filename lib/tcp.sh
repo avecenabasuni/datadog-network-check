@@ -1,5 +1,9 @@
 #!/usr/bin/env bash
+# E and port are supplied by the caller.
+# shellcheck disable=SC2154
 # A separate wrapper makes TCP execution replaceable in offline tests.
+# The child Bash expands its positional parameters.
+# shellcheck disable=SC2016
 tcp_connect() { timeout -k 1 "$TCP_TIMEOUT" bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' bash "$1" "$2" 2>&1; }
 tcp_check() {
     local ip output rc good=0 bad=0 unavailable_v6=0 count=0 reason

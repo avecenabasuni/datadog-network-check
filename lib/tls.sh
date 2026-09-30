@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# E and port are supplied by the caller.
+# shellcheck disable=SC2154
 tls_probe() (
     unset SSLKEYLOGFILE
     local target=$2

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+# E and manifest fields are supplied by the caller; associative indexes are strings.
+# shellcheck disable=SC2154,SC2004
 emit() {
     printf '%s\n' "${1-}" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
 }
@@ -188,7 +190,7 @@ terminal_full_host_note() {
 terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
     local width label spinner
-    local -a frames=('|' '/' '-' '\')
+    local -a frames=('|' '/' '-' $'\\')
     width=$(terminal_width)
     spinner=${frames[TERMINAL_PROGRESS_TICK%4]}
     ((TERMINAL_PROGRESS_TICK+=1))

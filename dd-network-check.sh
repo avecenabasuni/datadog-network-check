@@ -17,6 +17,8 @@ source "$ROOT/lib/http.sh" || exit 3
 source "$ROOT/lib/reporting.sh" || exit 3
 
 # Internal limits, seconds. No background probing or package installation.
+# MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
+# shellcheck disable=SC2034
 TOOL_VERSION=0.1.4
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2

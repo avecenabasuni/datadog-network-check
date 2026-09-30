@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # Libraries return results in the caller-owned associative array E.
+# Site and Agent globals are read by the entry point after this module is sourced.
+# shellcheck disable=SC2154,SC2034
 have() { command -v "$1" >/dev/null 2>&1; }
 error() { printf 'ERROR: %s\n' "$*" >&2; }
 clean() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
@@ -77,6 +79,7 @@ load_sites() {
         [[ -z $line || $line == \#* ]] && continue
         [[ ${line//[^|]/} == '|||' ]] || { error 'Malformed sites manifest'; return 1; }
         IFS='|' read -r code label site rum extra <<< "$line"
+        # shellcheck disable=SC2015
         [[ $code =~ ^[a-z0-9-]+$ && $label =~ ^[A-Z0-9-]+$ && -z ${SITE_LABELS[$code]-} ]] && valid_host "$site" && valid_host "$rum" || { error 'Invalid site record'; return 1; }
         SITE_CODES+=("$code"); SITE_LABELS[$code]=$label; SITE_DOMAINS[$code]=$site; SITE_RUM[$code]=$rum; ((n+=1))
     done < "$ROOT/config/sites.conf"
@@ -152,7 +155,7 @@ detect_agent_version() {
     if have datadog-agent; then
         if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
         else output=$(datadog-agent version 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE=command; return 0; fi
+        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE='command'; return 0; fi
     fi
     if have dpkg; then
         if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''

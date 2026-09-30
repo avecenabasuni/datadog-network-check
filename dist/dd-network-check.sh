@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=a84f3760cc5bf96585aa2f60f71febbfcd00135dffcf0b7c14ddcfc2e5882a8e
+# source_sha256=2f3a4d6b12349e22f6123bc4b0efee08462e8245c00285570750006e325e9e5b
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -10,6 +10,8 @@ ROOT=$(pwd -P) || exit 3
 # BEGIN GENERATED MODULE: lib/utils.sh
 #!/usr/bin/env bash
 # Libraries return results in the caller-owned associative array E.
+# Site and Agent globals are read by the entry point after this module is sourced.
+# shellcheck disable=SC2154,SC2034
 have() { command -v "$1" >/dev/null 2>&1; }
 error() { printf 'ERROR: %s\n' "$*" >&2; }
 clean() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
@@ -87,6 +89,7 @@ load_sites() {
         [[ -z $line || $line == \#* ]] && continue
         [[ ${line//[^|]/} == '|||' ]] || { error 'Malformed sites manifest'; return 1; }
         IFS='|' read -r code label site rum extra <<< "$line"
+        # shellcheck disable=SC2015
         [[ $code =~ ^[a-z0-9-]+$ && $label =~ ^[A-Z0-9-]+$ && -z ${SITE_LABELS[$code]-} ]] && valid_host "$site" && valid_host "$rum" || { error 'Invalid site record'; return 1; }
         SITE_CODES+=("$code"); SITE_LABELS[$code]=$label; SITE_DOMAINS[$code]=$site; SITE_RUM[$code]=$rum; ((n+=1))
     done <<'DD_PREFLIGHT_SITES_MANIFEST_EOF'
@@ -238,7 +241,7 @@ detect_agent_version() {
     if have datadog-agent; then
         if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
         else output=$(datadog-agent version 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE=command; return 0; fi
+        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE='command'; return 0; fi
     fi
     if have dpkg; then
         if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''
@@ -271,6 +274,8 @@ classify_result() {
 # END GENERATED MODULE: lib/utils.sh
 # BEGIN GENERATED MODULE: lib/dns.sh
 #!/usr/bin/env bash
+# E is a caller-owned associative array; ShellCheck reads its keys as variables.
+# shellcheck disable=SC2154
 dns_check() {
     local host=$1 output='' ip rc=0 current=$1 next depth answer seen=" $1 "
     if have getent && have timeout; then
@@ -326,7 +331,11 @@ dns_check() {
 # END GENERATED MODULE: lib/dns.sh
 # BEGIN GENERATED MODULE: lib/tcp.sh
 #!/usr/bin/env bash
+# E and port are supplied by the caller.
+# shellcheck disable=SC2154
 # A separate wrapper makes TCP execution replaceable in offline tests.
+# The child Bash expands its positional parameters.
+# shellcheck disable=SC2016
 tcp_connect() { timeout -k 1 "$TCP_TIMEOUT" bash -c 'exec 3<>/dev/tcp/"$1"/"$2"' bash "$1" "$2" 2>&1; }
 tcp_check() {
     local ip output rc good=0 bad=0 unavailable_v6=0 count=0 reason
@@ -361,6 +370,8 @@ tcp_check() {
 # END GENERATED MODULE: lib/tcp.sh
 # BEGIN GENERATED MODULE: lib/tls.sh
 #!/usr/bin/env bash
+# E and port are supplied by the caller.
+# shellcheck disable=SC2154
 tls_probe() (
     unset SSLKEYLOGFILE
     local target=$2
@@ -422,6 +433,8 @@ tls_check() {
 # END GENERATED MODULE: lib/tls.sh
 # BEGIN GENERATED MODULE: lib/http.sh
 #!/usr/bin/env bash
+# E is a caller-owned associative array; its keys and indexes are not arithmetic variables.
+# shellcheck disable=SC2154,SC2004
 # Never use --fail, --insecure, credentials, verbose traces, or a user's curlrc.
 # Body/headers stay in bounded memory and are discarded after classification.
 curl_probe() (
@@ -550,7 +563,7 @@ http_attempt() {
     E[via]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^via:/{v=substr($0,5)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
     low=${body,,}; vendor=''; generic=0
     case $low in *fortigate*|*fortinet*) vendor=Fortinet;; *zscaler*) vendor=Zscaler;; *'palo alto'*) vendor='Palo Alto';; esac
-    case $low in *blocked*|*'web filter'*|*'access denied'*|*'category blocked'*) generic=1;; esac
+    case $low in *blocked*|*'web filter'*|*'access denied'*) generic=1;; esac
     if [[ -n $vendor ]] && ((generic)); then
         [[ ${E[http]} == FAIL ]] || E[http]=WARN
         add_note "POSSIBLE SECURITY FILTERING: $vendor and denial/filter signature detected; not definitive proof"
@@ -617,6 +630,8 @@ http_check() {
 # END GENERATED MODULE: lib/http.sh
 # BEGIN GENERATED MODULE: lib/reporting.sh
 #!/usr/bin/env bash
+# E and manifest fields are supplied by the caller; associative indexes are strings.
+# shellcheck disable=SC2154,SC2004
 emit() {
     printf '%s\n' "${1-}" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
 }
@@ -806,7 +821,7 @@ terminal_full_host_note() {
 terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
     local width label spinner
-    local -a frames=('|' '/' '-' '\')
+    local -a frames=('|' '/' '-' $'\\')
     width=$(terminal_width)
     spinner=${frames[TERMINAL_PROGRESS_TICK%4]}
     ((TERMINAL_PROGRESS_TICK+=1))
@@ -1303,6 +1318,8 @@ report_finish() {
 # END GENERATED MODULE: lib/reporting.sh
 
 # Internal limits, seconds. No background probing or package installation.
+# MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
+# shellcheck disable=SC2034
 TOOL_VERSION=0.1.4
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
