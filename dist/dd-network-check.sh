@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=4633be8b3f8c5e6fc79814e443ebba6b2ce4f85d08187395a66fb5155a2103a2
+# source_sha256=578e861075f1a6a882637706e3d55c5070ed368398b27261efc48006a5adf3f4
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -562,20 +562,47 @@ http_check() {
 emit() {
     printf '%s\n' "${1-}" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
 }
+terminal_utf8() {
+    [[ ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} =~ [Uu][Tt][Ff]-?8 ]]
+}
+terminal_color_enabled() {
+    [[ -t 1 && -z ${NO_COLOR-} && ${TERM-} != dumb ]]
+}
+terminal_symbol() {
+    if terminal_utf8; then
+        case $1 in
+            PASS|READY) printf '✔';;
+            WARN|'READY WITH WARNINGS') printf '⚠';;
+            REVIEW) printf '◌';;
+            FAIL|BLOCKED) printf '✖';;
+            *) printf -- '-';;
+        esac
+    else
+        case $1 in
+            PASS|READY) printf '[OK]';;
+            WARN|'READY WITH WARNINGS') printf '[!!]';;
+            REVIEW) printf '[??]';;
+            FAIL|BLOCKED) printf '[XX]';;
+            *) printf '[--]';;
+        esac
+    fi
+}
 terminal_status() {
-    local status=$1 label=$2 color=''
-    if [[ -t 1 && -z ${NO_COLOR-} && ${TERM-} != dumb ]]; then
+    local status=$1 label=$2 color='' symbol
+    symbol=$(terminal_symbol "$status")
+    if terminal_color_enabled; then
         case $status in
             PASS|READY) color=$'\033[32m';;
-            WARN|REVIEW|'READY WITH WARNINGS') color=$'\033[33m';;
+            WARN|'READY WITH WARNINGS') color=$'\033[33m';;
+            REVIEW) color=$'\033[36m';;
             FAIL|BLOCKED) color=$'\033[31m';;
             'N/A') color=$'\033[90m';;
         esac
     fi
     if [[ -n $color ]]; then
-        printf '  %s%-6s\033[0m %s\n' "$color" "$status" "$label"
+        printf '  %s%-6s\033[0m %s %s\n' "$color" "$status" "$label" "$symbol"
     else
-        printf '  %-6s %s\n' "$status" "$label"
+        printf '  %-6s %s %s\n' "$status" "$label" "$symbol"
     fi
 }
 terminal_narrow() {

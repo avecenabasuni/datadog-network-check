@@ -2,20 +2,47 @@
 emit() {
     printf '%s\n' "${1-}" >> "$TXT_REPORT" || { error 'Cannot write TXT report'; exit 3; }
 }
+terminal_utf8() {
+    [[ ${LC_ALL:-${LC_CTYPE:-${LANG:-}}} =~ [Uu][Tt][Ff]-?8 ]]
+}
+terminal_color_enabled() {
+    [[ -t 1 && -z ${NO_COLOR-} && ${TERM-} != dumb ]]
+}
+terminal_symbol() {
+    if terminal_utf8; then
+        case $1 in
+            PASS|READY) printf '✔';;
+            WARN|'READY WITH WARNINGS') printf '⚠';;
+            REVIEW) printf '◌';;
+            FAIL|BLOCKED) printf '✖';;
+            *) printf -- '-';;
+        esac
+    else
+        case $1 in
+            PASS|READY) printf '[OK]';;
+            WARN|'READY WITH WARNINGS') printf '[!!]';;
+            REVIEW) printf '[??]';;
+            FAIL|BLOCKED) printf '[XX]';;
+            *) printf '[--]';;
+        esac
+    fi
+}
 terminal_status() {
-    local status=$1 label=$2 color=''
-    if [[ -t 1 && -z ${NO_COLOR-} && ${TERM-} != dumb ]]; then
+    local status=$1 label=$2 color='' symbol
+    symbol=$(terminal_symbol "$status")
+    if terminal_color_enabled; then
         case $status in
             PASS|READY) color=$'\033[32m';;
-            WARN|REVIEW|'READY WITH WARNINGS') color=$'\033[33m';;
+            WARN|'READY WITH WARNINGS') color=$'\033[33m';;
+            REVIEW) color=$'\033[36m';;
             FAIL|BLOCKED) color=$'\033[31m';;
             'N/A') color=$'\033[90m';;
         esac
     fi
     if [[ -n $color ]]; then
-        printf '  %s%-6s\033[0m %s\n' "$color" "$status" "$label"
+        printf '  %s%-6s\033[0m %s %s\n' "$color" "$status" "$label" "$symbol"
     else
-        printf '  %-6s %s\n' "$status" "$label"
+        printf '  %-6s %s %s\n' "$status" "$label" "$symbol"
     fi
 }
 terminal_narrow() {

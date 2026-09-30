@@ -40,7 +40,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(json.loads(output), 'quotes " backslash \\ tab\t newline\n escape')
 
     def test_terminal_colors_only_when_tty_and_enabled(self):
-        def capture(no_color):
+        def capture(no_color, status='PASS'):
             master, slave = pty.openpty()
             env = os.environ.copy()
             env['TERM'] = 'xterm'
@@ -48,7 +48,7 @@ class UnitTests(unittest.TestCase):
             if no_color:
                 env['NO_COLOR'] = '1'
             try:
-                result = subprocess.run(['bash', '-c', SOURCE + 'terminal_status PASS example.com'],
+                result = subprocess.run(['bash', '-c', SOURCE + f'terminal_status {status} example.com'],
                     cwd=ROOT, env=env, stdout=slave, stderr=subprocess.PIPE, timeout=10)
                 os.close(slave)
                 slave = -1
@@ -61,7 +61,18 @@ class UnitTests(unittest.TestCase):
                 os.close(master)
 
         self.assertIn(b'\x1b[32m', capture(False))
+        self.assertIn(b'\x1b[36m', capture(False, 'REVIEW'))
         self.assertNotIn(b'\x1b[', capture(True))
+
+    def test_terminal_symbols_fall_back_to_ascii(self):
+        env = os.environ.copy()
+        env['LC_ALL'] = 'C'
+        result = bash(SOURCE + 'terminal_status PASS example.com; terminal_status WARN example.com; '
+                      'terminal_status REVIEW example.com; terminal_status FAIL example.com', env)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn('\x1b', result.stdout)
+        for symbol in ('[OK]', '[!!]', '[??]', '[XX]'):
+            self.assertIn(symbol, result.stdout)
 
     def test_compact_warning_explains_skipped_optional_tls_probe(self):
         output = self.run_code("LAST_TERMINAL_CATEGORY=agent; category=agent; E[hostname]=example.com; "
