@@ -6,6 +6,7 @@ import json
 import os
 from pathlib import Path
 import pty
+import select
 import shutil
 import subprocess
 import tempfile
@@ -165,11 +166,12 @@ class UnitTests(unittest.TestCase):
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
-    def test_terminal_category_header_uses_endpoint_counts(self):
+    def test_terminal_category_header_streams_without_future_counts(self):
         output = self.run_code("declare -A TERMINAL_COUNTS=([agent:PASS]=2 [agent:REVIEW]=3); "
             "terminal_section agent")
         self.assertIn('AGENT', output)
-        self.assertRegex(output, r'2\s+[^\s]+\s+3\s+[^\s]+')
+        self.assertNotIn('2 ', output)
+        self.assertNotIn('3 ', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
     def test_terminal_wraps_long_diagnostic_at_80_columns(self):
@@ -193,8 +195,10 @@ for host in gcr.io eu.gcr.io; do
     E[redirect_http_status]=200
     E[redirect_final_url]='https://accounts.google.com/[path omitted]'
     terminal_capture_endpoint
+    TERMINAL_CURRENT_INDEX=$((${#TERMINAL_ORDER[@]}-1))
+    terminal_endpoint
 done
-terminal_render_report
+terminal_group_notes "$category"
 ''')
         self.assertIn('gcr.io', output)
         self.assertIn('eu.gcr.io', output)
@@ -205,6 +209,13 @@ terminal_render_report
         output = self.run_code('TERMINAL_TTY=0; TERMINAL_PROGRESS_DONE=1; '
             'TERMINAL_PROGRESS_TOTAL=3; terminal_progress; terminal_progress_clear')
         self.assertEqual(output, '')
+
+    def test_progress_total_uses_applicable_manifest_records(self):
+        output = self.run_code('load_sites && validate_manifest; SITE=us1; '
+            'full=$(terminal_destination_count); '
+            'RECORDS=("${RECORDS[0]}" "${RECORDS[4]}"); '
+            'printf "%s %s" "$full" "$(terminal_destination_count)"')
+        self.assertEqual(output, '53 1')
 
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
@@ -521,6 +532,31 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertIn('--disable --silent', calls)
         self.assertIn('--proto =https --proto-redir =https', calls)
         self.assertNotIn('--insecure', calls)
+
+    def test_rows_stream_before_later_endpoint_finishes(self):
+        self.manifest('second|api|Second destination|second.example.com|443|https|all|full|required|all|/|-|https://example.com/docs\n')
+        self.write_command('curl', r'''
+[[ $* != *second.example.com* ]] || sleep 3
+printf 'HTTP/1.1 403 Forbidden\r\n\r\n'
+printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
+''')
+        process = subprocess.Popen(['bash', './dd-network-check.sh', '--site', 'us1'],
+                                   cwd=self.root, env=self.env, stdout=subprocess.PIPE,
+                                   stderr=subprocess.PIPE)
+        seen = b''
+        try:
+            while b' API ' not in seen:
+                ready, _, _ = select.select([process.stdout], [], [], 2)
+                self.assertTrue(ready, seen.decode(errors='replace'))
+                seen += os.read(process.stdout.fileno(), 4096)
+            self.assertRegex(seen.decode(), r'PASS\s+example\.com')
+            self.assertIsNone(process.poll(), 'Rows were held until the scan completed')
+            _, stderr = process.communicate(timeout=15)
+            self.assertEqual(process.returncode, 0, stderr.decode())
+        finally:
+            if process.poll() is None:
+                process.kill()
+                process.communicate()
 
     def test_wildcard_never_probed(self):
         self.manifest('wildcard|agent|Agent wildcard|*.agent.{site}|443|https|all|wildcard|required|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')

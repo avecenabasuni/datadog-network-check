@@ -164,19 +164,38 @@ terminal_note() {
     done
 }
 terminal_progress() {
-    [[ ${TERMINAL_TTY-0} == 1 && ${TERM-} != dumb ]] || return 0
-    local width
+    [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
+    local width label spinner
+    local -a frames=('|' '/' '-' '\')
     width=$(terminal_width)
-    printf '\r%-*.*s\r' "$((width-1))" "$((width-1))" "Checking destinations: $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL"
+    spinner=${frames[TERMINAL_PROGRESS_TICK%4]}
+    ((TERMINAL_PROGRESS_TICK+=1))
+    label="$spinner Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}"
+    printf '\r\033[2K\033[2m%s\033[0m' "$(terminal_truncate "$label" "$width")"
 }
 terminal_progress_clear() {
-    [[ ${TERMINAL_TTY-0} == 1 && ${TERM-} != dumb ]] || return 0
-    local width
-    width=$(terminal_width)
-    printf '\r%*s\r' "$((width-1))" ''
+    [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
+    printf '\r\033[2K'
+}
+terminal_interrupt() {
+    terminal_progress_clear
+    if [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled; then printf '\033[0m\033[?25h'; fi
+    error 'Scan interrupted; incomplete files retained in reports, no final readiness report'
+    exit 3
+}
+terminal_destination_count() {
+    local line total=0
+    for line in "${RECORDS[@]}"; do
+        parse_record "$line"
+        if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
+            continue
+        fi
+        ((total+=1))
+    done
+    printf '%s' "$total"
 }
 terminal_section() {
-    local title=${1//_/ } status count counts='' divider padding fill width
+    local title=${1//_/ } divider padding fill width
     if [[ $title == SUMMARY ]] && ! terminal_narrow; then
         printf '\n%s\n' '+------------------------------------------------------------------------------+'
         printf '| %-76s |\n' SUMMARY
@@ -186,26 +205,27 @@ terminal_section() {
     [[ $title != SUMMARY ]] || { printf '\n[ SUMMARY ]\n'; return; }
     title=${title^^}
     [[ $1 != rum ]] || title+=' (VM-side only)'
-    if declare -p TERMINAL_COUNTS >/dev/null 2>&1; then
-        for status in PASS WARN FAIL REVIEW; do
-            count=${TERMINAL_COUNTS["$1:$status"]-0}
-            ((count)) && counts+="  $count $(terminal_symbol "$status")"
-        done
-    fi
     width=$(terminal_width)
     divider='-'; terminal_utf8 && divider='─'
-    fill=$((width-3-${#title}-${#counts}))
+    fill=$((width-3-${#title}))
     if ((fill<3)); then
-        printf '\n %s\n  %s\n' "$title" "${counts#  }"
+        printf '\n %s\n' "$title"
         return
     fi
     printf -v padding '%*s' "$fill" ''
     padding=${padding// /$divider}
     if terminal_color_enabled; then
-        printf '\n \033[1m%s\033[0m \033[2m%s\033[0m%s\n' "$title" "$padding" "$counts"
+        printf '\n \033[1m%s\033[0m \033[2m%s\033[0m\n' "$title" "$padding"
     else
-        printf '\n %s %s%s\n' "$title" "$padding" "$counts"
+        printf '\n %s %s\n' "$title" "$padding"
     fi
+}
+terminal_category_start() {
+    [[ ${LAST_TERMINAL_CATEGORY-} != "$category" ]] || return 0
+    terminal_progress_clear
+    [[ -z ${LAST_TERMINAL_CATEGORY-} ]] || terminal_group_notes "$LAST_TERMINAL_CATEGORY"
+    terminal_section "$category"
+    LAST_TERMINAL_CATEGORY=$category
 }
 terminal_intro() {
     local available=$1 unavailable=$2
@@ -259,10 +279,7 @@ terminal_table_header() {
 terminal_endpoint() {
     local state hint field detail http_display dns_display tcp_display tls_display reasons=''
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
-    if [[ $LAST_TERMINAL_CATEGORY != "$category" ]]; then
-        terminal_section "$category"
-        LAST_TERMINAL_CATEGORY=$category
-    fi
+    terminal_category_start
     if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
         if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='wildcard allowlist'
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
@@ -282,7 +299,7 @@ terminal_endpoint() {
     terminal_row "$state" "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display"
     [[ $state != PASS ]] || return 0
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
-        if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist && ${TERMINAL_GROUP_COUNTS["$category:redirect_allowlist"]-0} -ge 2 ]]; then return 0; fi
+        if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist ]]; then return 0; fi
     fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
@@ -328,30 +345,9 @@ terminal_capture_endpoint() {
 }
 terminal_group_notes() {
     local count=${TERMINAL_GROUP_COUNTS["$1:redirect_allowlist"]-0}
-    if ((count>=2)); then
+    if ((count)); then
         terminal_note "$count redirects; check HTTPS targets in proxy/firewall."
     fi
-}
-terminal_render_report() {
-    local i field category
-    local -A last_group_index=()
-    ((${#TERMINAL_ORDER[@]})) || return 0
-    for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
-        [[ ${TERMINAL_NOTE_KEY[i]-} != redirect_allowlist ]] || last_group_index[${TERMINAL_ORDER[i]}]=$i
-    done
-    terminal_table_header
-    LAST_TERMINAL_CATEGORY=''
-    for ((i=0;i<${#TERMINAL_ORDER[@]};i++)); do
-        category=${TERMINAL_ORDER[i]}
-        for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
-            # shellcheck disable=SC2004
-            E[$field]=${TERMINAL_SNAP["$i:$field"]-}
-        done
-        TERMINAL_CURRENT_INDEX=$i
-        terminal_endpoint
-        [[ ${last_group_index[$category]-} != "$i" ]] || terminal_group_notes "$category"
-    done
-    TERMINAL_CURRENT_INDEX=''
 }
 terminal_box_border() {
     local position=$1 width fill left right divider title=''
@@ -546,8 +542,12 @@ report_endpoint() {
     emit "Endpoint result  ${E[status]} (readiness impact: ${E[impact]})"
     emit "Note             ${E[notes]}"
     terminal_capture_endpoint
-    ((TERMINAL_PROGRESS_DONE+=1))
-    terminal_progress
+    if [[ ${E[classification]} != 'NOT APPLICABLE' ]]; then
+        terminal_progress_clear
+        TERMINAL_CURRENT_INDEX=$((${#TERMINAL_ORDER[@]}-1))
+        terminal_endpoint
+        ((TERMINAL_PROGRESS_DONE+=1))
+    fi
     endpoint_json >> "$ENDPOINT_JSON" || { error 'Cannot write endpoint JSON'; exit 3; }
     if [[ ${E[classification]} == 'DIRECT TEST' || ${E[classification]} == 'SERVER-SIDE SANITY CHECK ONLY' ]]; then
         case ${E[status]} in
@@ -614,6 +614,6 @@ report_finish() {
     mv -- "$TXT_REPORT" "$REPORT_BASE.txt" && mv -- "$JSON_REPORT" "$REPORT_BASE.json" || return 1
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
     terminal_progress_clear
-    terminal_render_report
+    [[ -z $LAST_TERMINAL_CATEGORY ]] || terminal_group_notes "$LAST_TERMINAL_CATEGORY"
     terminal_summary
 }

@@ -61,7 +61,7 @@ main() {
     OS_NAME=${OS_NAME:-Linux}
     terminal_banner
     report_init || { error 'Cannot initialize private reports'; return 3; }
-    trap 'error "Scan interrupted; incomplete files retained in reports, no final readiness report"; exit 3' INT TERM HUP
+    trap terminal_interrupt INT TERM HUP
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'
     emit "Host       : $MACHINE"; emit "OS         : $OS_NAME"; emit "Site       : ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
     emit "Timestamp  : $TIMESTAMP"; emit "Docs review: $VERIFIED"; emit ''
@@ -87,8 +87,9 @@ main() {
     declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=()
     declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
-    TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TOTAL=${#RECORDS[@]}
-    terminal_progress
+    TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TICK=0
+    TERMINAL_PROGRESS_TOTAL=$(terminal_destination_count)
+    terminal_table_header
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}
@@ -99,11 +100,15 @@ main() {
             for field in dns cname tcp tls http; do E[$field]='NOT APPLICABLE'; E[${field}_detail]='Outside Linux/site/server scope'; done
             add_note 'NOT APPLICABLE TO SERVER-SIDE PREFLIGHT for this Linux/site selection'
         elif [[ $test_type == wildcard || $test_type == manual || ( $test_type == version && -z $AGENT_VERSION ) ]]; then
+            terminal_category_start
+            TERMINAL_PROGRESS_HOST=$host; terminal_progress
             E[classification]='NOT DIRECTLY TESTABLE'
             [[ $test_type != wildcard ]] || E[classification]='ALLOWLIST REQUIREMENT'
             for field in dns cname tcp tls http; do E[$field]='NOT DIRECTLY TESTABLE'; E[${field}_detail]='Manual review required; no network probe issued'; done
         else
             if [[ $test_type == version ]]; then host=${host//\{version\}/$AGENT_VERSION}; E[hostname]=$host; fi
+            terminal_category_start
+            TERMINAL_PROGRESS_HOST=$host; terminal_progress
             [[ $test_type != server_sanity_only ]] || E[classification]='SERVER-SIDE SANITY CHECK ONLY'
             dns_check "$host"; tcp_check; tls_check "$host"
             # curl may resolve through a proxy even after local DNS/TCP failure.
