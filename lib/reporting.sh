@@ -13,34 +13,39 @@ terminal_status() {
         esac
     fi
     if [[ -n $color ]]; then
-        printf '  %s%-8s\033[0m %s\n' "$color" "$status" "$label"
+        printf '  %s%-6s\033[0m %s\n' "$color" "$status" "$label"
     else
-        printf '  %-8s %s\n' "$status" "$label"
+        printf '  %-6s %s\n' "$status" "$label"
     fi
+}
+terminal_narrow() {
+    [[ ${COLUMNS-} =~ ^[0-9]+$ ]] && ((10#$COLUMNS < 80))
 }
 terminal_section() {
     local title=${1//_/ }
     printf '\n%s\n' "${title^^}"
-    printf '%s\n' '----------------------------------------'
+    if [[ $title != SUMMARY && ${TERMINAL_HEADER_SHOWN-} != 1 ]] && ! terminal_narrow; then
+        printf '  %-6s %-45s %4s %4s %4s %s\n' STATUS DESTINATION DNS TCP TLS HTTP
+        TERMINAL_HEADER_SHOWN=1
+    fi
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    printf '\n========================================\n'
-    printf ' DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
-    printf '========================================\n'
-    printf 'Host  %s\nOS    %s\nSite  %s (%s)\n' "$MACHINE" "$OS_NAME" "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
-    printf 'Tools available: %s\n' "${available:-none}"
-    [[ -z $unavailable ]] || printf 'Tools unavailable: %s\n' "$unavailable"
-    if ((PROXY_PRESENT)); then printf 'Proxy environment: configured (values withheld)\n'
-    else printf 'Proxy environment: not configured\n'; fi
-    printf 'Agent version: %s\n' "${AGENT_VERSION:-not determined}"
-    printf 'Scan: all documented destinations; detailed TXT/JSON reports follow.\n'
+    printf '\n%-7s %s\n' Host "$MACHINE"
+    printf '%-7s %s\n' OS "$OS_NAME"
+    printf '%-7s %s (%s)\n' Site "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
+    printf '%-7s %s\n' Agent "${AGENT_VERSION:-not determined}"
+    printf '%-7s %s\n' Tools "${available:-none}"
+    [[ -z $unavailable ]] || printf '%-7s %s\n' Missing "$unavailable"
+    if ((PROXY_PRESENT)); then printf '%-7s %s\n' Proxy 'configured (values withheld)'
+    else printf '%-7s %s\n' Proxy 'not configured'; fi
+    printf '%-7s %s\n' Scan 'all documented destinations; detailed TXT/JSON reports follow'
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
 }
 terminal_endpoint() {
-    local state hint field detail http_display
+    local state hint field detail http_display dns_display tcp_display tls_display row vm_note=''
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     if [[ $LAST_TERMINAL_CATEGORY != "$category" ]]; then
         terminal_section "$category"
@@ -50,7 +55,12 @@ terminal_endpoint() {
         if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='wildcard allowlist'
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined'
         else hint='manual target'; fi
-        terminal_status REVIEW "${E[hostname]}  ($hint)"
+        if terminal_narrow || ((${#E[hostname]} + ${#hint} > 56)); then
+            terminal_status REVIEW "${E[hostname]}"
+            printf '         %s (not tested)\n' "$hint"
+        else
+            terminal_status REVIEW "${E[hostname]}  $hint (not tested)"
+        fi
         return 0
     fi
     state=${E[impact]}
@@ -58,9 +68,17 @@ terminal_endpoint() {
     if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
         http_display+=">${E[redirect_http_status]:-${E[redirect_http]}}"
     fi
-    hint="DNS $(terminal_stage "${E[dns]}")  TCP $(terminal_stage "${E[tcp]}")  TLS $(terminal_stage "${E[tls]}")  HTTP $http_display"
-    [[ ${E[classification]} != 'SERVER-SIDE SANITY CHECK ONLY' ]] || hint+='  [VM only]'
-    terminal_status "$state" "${E[hostname]}  $hint"
+    dns_display=$(terminal_stage "${E[dns]}")
+    tcp_display=$(terminal_stage "${E[tcp]}")
+    tls_display=$(terminal_stage "${E[tls]}")
+    [[ ${E[classification]} != 'SERVER-SIDE SANITY CHECK ONLY' ]] || vm_note='  [VM only]'
+    if terminal_narrow || ((${#E[hostname]} > 45)) || [[ -n $vm_note ]]; then
+        terminal_status "$state" "${E[hostname]}"
+        printf '         DNS %s  TCP %s  TLS %s  HTTP %s%s\n' "$dns_display" "$tcp_display" "$tls_display" "$http_display" "$vm_note"
+    else
+        printf -v row '%-45s %4s %4s %4s %s%s' "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display" "$vm_note"
+        terminal_status "$state" "$row"
+    fi
     [[ $state != PASS ]] || return 0
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
@@ -183,7 +201,7 @@ report_endpoint() {
     [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || UNTESTED+=("${E[hostname]}: ${E[notes]}")
 }
 report_finish() {
-    local category line first=1 index=0
+    local category line first=1 index=0 attention=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
     emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
@@ -226,17 +244,19 @@ report_finish() {
     mv -- "$TXT_REPORT" "$REPORT_BASE.txt" && mv -- "$JSON_REPORT" "$REPORT_BASE.json" || return 1
     rm -f -- "$ENDPOINT_JSON"; rmdir -- "$RUN_DIR"
     terminal_section SUMMARY
+    terminal_status "$OVERALL" 'Network prerequisites'
+    printf '  Direct endpoint checks: %s PASS, %s WARN, %s FAIL\n' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"
     for category in "${CATEGORY_ORDER[@]}"; do
+        [[ ${CATEGORY_STATUS[$category]} != PASS ]] || continue
+        if ((attention==0)); then printf '\nAttention by category:\n'; attention=1; fi
         terminal_status "${CATEGORY_STATUS[$category]}" "${category//_/ }"
     done
-    printf '\nDirect endpoint checks: %s PASS, %s WARN, %s FAIL\n' "$DIRECT_PASS" "$DIRECT_WARN" "$DIRECT_FAIL"
-    terminal_status "$OVERALL" 'Network prerequisites'
     if ((${#BLOCKERS[@]})); then
-        printf 'Blockers:\n'
+        printf '\nBlockers:\n'
         for line in "${BLOCKERS[@]}"; do printf '  - %s\n' "$line"; done
     fi
     if ((${#ALLOWLIST[@]} || ${#UNTESTED[@]})); then
-        printf 'Manual review: %s wildcard allowlist, %s other untested requirement(s).\n' "${#ALLOWLIST[@]}" "${#UNTESTED[@]}"
+        printf '\nManual review: %s wildcard allowlist, %s other untested requirement(s).\n' "${#ALLOWLIST[@]}" "${#UNTESTED[@]}"
     fi
     printf 'RUM: VM-side sanity only; end-user browser connectivity is untested.\n'
     printf 'Reports:\n  TXT  %s.txt\n  JSON %s.json\n' "$REPORT_BASE" "$REPORT_BASE"

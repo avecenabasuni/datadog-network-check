@@ -37,7 +37,7 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
-    printf '========================================\n Datadog Network Preflight Checker\n========================================\n'
+    printf 'DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
     if [[ -z $SITE ]]; then
         printf '\nSelect Datadog Site:\n\n'; i=0
         for choice in "${SITE_CODES[@]}"; do ((i+=1)); printf '%s) %s\n' "$i" "${SITE_LABELS[$choice]}"; done

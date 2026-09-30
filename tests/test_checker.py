@@ -70,6 +70,38 @@ class UnitTests(unittest.TestCase):
             "E[http]=PASS; E[http_status]=403; terminal_endpoint")
         self.assertIn('TLS: OpenSSL unavailable', output)
 
+    def test_terminal_rows_keep_redirect_and_align_stages(self):
+        output = self.run_code("category=api; LAST_TERMINAL_CATEGORY=''; E[hostname]=api.datadoghq.com; "
+            "E[dns]=PASS; E[tcp]=PASS; E[tls]=PASS; E[http]=WARN; E[impact]=WARN; "
+            "E[http_status]=307; E[redirect_http_status]=200; E[redirect_http]=PASS; "
+            "E[redirect_http_detail]='Reached redirect'; E[redirect_final_url]='https://example.com/[path omitted]'; "
+            "E[http_detail]='Redirect'; terminal_endpoint")
+        self.assertIn('STATUS DESTINATION', output)
+        self.assertRegex(output, r'WARN\s+api\.datadoghq\.com\s+ok\s+ok\s+ok\s+307>200')
+        self.assertIn('HTTP: redirected to https://example.com/[path omitted]', output)
+
+    def test_terminal_long_and_narrow_rows_keep_full_hostname(self):
+        hostname = 'instrumentation-telemetry-intake.datadoghq.com'
+        code = ("category=instrumentation; LAST_TERMINAL_CATEGORY=''; "
+                f"E[hostname]={hostname}; E[dns]=PASS; E[tcp]=PASS; "
+                "E[tls]=SKIPPED; E[http]=PASS; E[http_status]=403; terminal_endpoint")
+        wide = self.run_code(code)
+        self.assertIn(hostname, wide)
+        self.assertIn('DNS ok  TCP ok  TLS --  HTTP 403', wide)
+        narrow = self.run_code('COLUMNS=60; ' + code)
+        self.assertIn(hostname, narrow)
+        self.assertNotIn('STATUS DESTINATION', narrow)
+        self.assertIn('DNS ok  TCP ok  TLS --  HTTP 403', narrow)
+
+    def test_terminal_review_is_explicitly_untested(self):
+        output = self.run_code("category=agent; LAST_TERMINAL_CATEGORY=''; "
+            "E[hostname]='*.agent.datadoghq.com'; E[classification]='ALLOWLIST REQUIREMENT'; "
+            "terminal_endpoint")
+        self.assertIn('REVIEW', output)
+        self.assertIn('wildcard allowlist (not tested)', output)
+        self.assertNotIn('DNS ok', output)
+        self.assertLessEqual(max(map(len, output.splitlines())), 80)
+
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
         self.assertEqual(output, 'https://example.com/[path omitted]')
@@ -367,8 +399,9 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         result, report = self.scan(0, interactive=True)
         self.assertIn('9) US2-FED', result.stdout)
         self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
+        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.3'), 1)
         self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', result.stdout)
-        self.assertEqual(result.stdout.count('example.com  DNS ok'), 1)
+        self.assertRegex(result.stdout, r'PASS\s+example\.com\s+ok\s+ok\s+ok\s+403')
         self.assertNotIn('TLS probe', result.stdout)
         self.assertNotIn('CNAME chain', result.stdout)
         self.assertNotIn('\x1b', result.stdout)
@@ -388,6 +421,17 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
         self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+
+    def test_summary_lists_only_categories_needing_attention(self):
+        self.manifest('wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
+        result, report = self.scan(1)
+        summary = result.stdout.split('\nSUMMARY\n', 1)[1]
+        self.assertIn('READY WITH WARNINGS', summary)
+        self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', summary)
+        self.assertRegex(summary, r'WARN\s+rum')
+        self.assertNotRegex(summary, r'PASS\s+agent')
+        self.assertIn('Manual review: 1 wildcard allowlist', summary)
+        self.assertEqual(report['categories'], {'agent': 'PASS', 'rum': 'WARN'})
 
     def test_rum_terminal_explicitly_limits_browser_claim(self):
         self.manifest()
