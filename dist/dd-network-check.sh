@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=076faec6623845a679f54ac083cfc212af51f7daae8626aa38068f10a84d2452
+# source_sha256=a84f3760cc5bf96585aa2f60f71febbfcd00135dffcf0b7c14ddcfc2e5882a8e
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -897,7 +897,7 @@ terminal_row() {
     host_width=$((width-33))
     shown=$(terminal_middle_host "$host" "$host_width")
     printf -v status_field '%-6s' "$state"
-    printf -v stages '%4s %4s %4s %-8s' "$dns" "$tcp" "$tls" "$http"
+    printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"
     if terminal_color_enabled; then
         case $state in
             PASS) color=$'\033[32m';;
@@ -918,7 +918,7 @@ terminal_table_header() {
         printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
     else
         host_width=$((width-33))
-        printf '\n  %-6s %-*s %4s %4s %4s %-8s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
+        printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
     fi
 }
 terminal_endpoint() {
@@ -1303,7 +1303,7 @@ report_finish() {
 # END GENERATED MODULE: lib/reporting.sh
 
 # Internal limits, seconds. No background probing or package installation.
-TOOL_VERSION=0.1.3
+TOOL_VERSION=0.1.4
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 

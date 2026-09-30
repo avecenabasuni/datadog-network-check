@@ -123,7 +123,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(tty_banner('C.UTF-8', 80, 'TERMINAL_NO_BANNER=1;'), '')
         piped = bash(setup + 'TERMINAL_TTY=0; terminal_banner')
         self.assertEqual(piped.returncode, 0, piped.stderr)
-        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.3\n')
+        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.4\n')
         self.assertNotIn('\x1b', piped.stdout)
 
     def test_compact_warning_explains_skipped_optional_tls_probe(self):
@@ -564,8 +564,8 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.manifest()
         result, report = self.scan(0, interactive=True)
         self.assertIn('9) US2-FED', result.stdout)
-        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
-        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.3'), 1)
+        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.4', result.stdout)
+        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.4'), 1)
         self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
         self.assertIn('Choice: \nDATADOG NETWORK PREFLIGHT', result.stdout)
         self.assertRegex(result.stdout, r'1 pass.*0 warn.*0 fail.*0 review')

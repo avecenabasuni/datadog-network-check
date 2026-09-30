@@ -22,7 +22,7 @@ Passing the first DOES NOT prove the second.
 From a writable directory on the Linux VM, paste this single command:
 
 ```bash
-bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/94ee4e4775a73a1e5489fccf61f4e4eac17fcd2c/dist/dd-network-check.sh) || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
+bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 "https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh?v=0.1.4") || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
 ```
 
 Select a Datadog site when prompted; the **entire scan** runs automatically. The generated single-file distribution includes every runtime module and both manifests. No clone, unpacking, package installation, API key, or product selection is needed. Runtime requirements remain Bash 4+, curl and the standard Linux utilities listed below; Python and Git are not required on the customer VM.
@@ -31,7 +31,7 @@ The download completes successfully before execution begins. The compact `-qfsSm
 
 **Reports are saved in `./reports/` under the directory where you run the command**, even if no repository checkout exists. The downloaded program and embedded manifests stay in memory; no installation or temporary extraction directory is created. Generated TXT/JSON files and exit codes are the same as local execution.
 
-The URL above pins the tested terminal-display release at commit `94ee4e4`, so it avoids stale responses from GitHub's moving `main` raw URL. Replace the full commit SHA after reviewing a newer release. The VM needs outbound access to `raw.githubusercontent.com` in addition to the Datadog destinations being tested. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
+The URL uses the published `main` bundle with a versioned query to avoid reusing a cached response from a previous release. It serves v0.1.4 only after the commits are pushed to `main`; check the printed version before using a new release. The VM needs outbound access to `raw.githubusercontent.com` in addition to the Datadog destinations being tested. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
 
 For unattended execution, append `-- --site us1` after the closing quote of the one-command invocation. With no arguments, interactive selection remains the default. See [distribution design and tests](docs/DISTRIBUTION.md).
 
@@ -92,7 +92,7 @@ The following stages have independent results:
 2. **CNAME:** `dig` follows up to eight aliases, recording errors and loops. A hostname without CNAMEs can pass. `nslookup` provides partial information with a warning; otherwise detailed inspection is skipped. A chain is evidence, not proof that every CDN address works or that filtering caused a failure.
 3. **TCP:** direct connections to up to four resolved addresses, each with a five-second limit. IPv4 and IPv6 are supported. A successful address with another real timeout/refusal is WARN; all sampled addresses failing is FAIL. An IPv6 `network unreachable` result is recorded but does not warn when an IPv4 address worked. Sampling only four addresses is disclosed as a coverage note, not a failure. Without `timeout`, the raw TCP stage is skipped.
 4. **TLS:** OpenSSL connects to the first reachable IP with SNI, hostname verification, certificate-chain verification and an eight-second limit. An inconclusive timeout gets one retry, preferring another IP that passed TCP. Success on retry is WARN, retaining the failed attempt. A verified negotiated TLS session followed by an OpenSSL process timeout is WARN; verification code zero alone is insufficient for that exception. Certificate errors remain FAIL and are not retried. Subject, issuer, expiry, probe IP, exit code and attempts are reported. Unknown issuers do not imply inspection. Missing OpenSSL, hostname-verification support, or `timeout` skips detailed inspection; curl still provides verified HTTPS evidence. OpenSSL and curl can have different trust stores.
-5. **HTTP:** curl first checks the original endpoint **without following redirects**, using its environment-configured route, certificate verification, a five-second connect limit and a twelve-second total limit. Transient transport errors (curl 7/28/52/55/56) get one bounded retry; recovery is WARN and both attempts remain visible. Certificate errors are not retried. A reachable 3xx response triggers a separate follow-up request with at most three HTTPS-only redirects. The original status/IP and redirect result are retained separately. A failed follow-up warns about the redirect path; it does not erase the successful response from the original endpoint. One fully verified redirect back to the same hostname can PASS. Cross-host redirects and multi-hop chains remain WARN because they may add allowlist requirements.
+5. **HTTP:** curl first checks the original endpoint **without following redirects**, using its environment-configured route, certificate verification, a five-second connect limit and a twelve-second total limit. Transient transport errors (curl 7/28/52/55/56) get one bounded retry; recovery is WARN and both attempts remain visible. Certificate errors are not retried. A reachable 3xx response triggers a separate follow-up request with at most three HTTPS-only redirects. The original status/IP and redirect result are retained separately. A failed follow-up warns about the redirect path; it does not erase the successful response from the original endpoint. One fully verified redirect back to the same hostname can PASS. A verified registry redirect to its observed expected host can also PASS. An unexpected cross-host target or multi-hop chain remains WARN because it may add allowlist requirements.
 
 A GET with a byte range limits requested body size. Response capture is capped; raw bodies and headers are never written to reports. HTTP status, redacted URL, remote IP, redirects, Server and Via are reported, along with cumulative DNS, TCP-connect, TLS-completion, first-byte and total times in seconds. These times are measured from request start, not individual phase durations. Timeout messages use available timings to distinguish connection, TLS/proxy negotiation, response-wait and response-transfer phases; missing timing evidence remains explicitly unknown. URL paths, queries, fragments and userinfo are withheld because redirects can contain secrets.
 
@@ -100,29 +100,34 @@ All limits are at the top of `dd-network-check.sh`. Requests are sequential; suc
 
 ## Terminal display and detailed reports
 
-The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Category headings show per-status counts; endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint. Long hostnames are shortened only in the terminal view. `WARN` and `FAIL` reasons use up to two indented lines, while repeated registry redirect warnings share one explanation. Wildcard and manual entries say `REVIEW` and are marked not tested. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
+The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Each category heading and endpoint row streams during the scan; a TTY with color enabled shows a single temporary progress footer. Endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint and show the full name under a shortened hostname. `WARN` and `FAIL` reasons use up to two indented lines, while expected registry redirects share one allowlist note. Wildcard and manual entries say `REVIEW` and are marked not tested. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
 
-The boxed summary gives the readiness verdict, counts, categories needing attention, manual-review counts, the RUM limitation, and both full report paths. RUM checks are VM-side sanity checks; end-user browser connectivity remains untested. A scan progress counter appears only in an interactive terminal and clears before the results. Terminal color appears only on a TTY, and `NO_COLOR=1` or `TERM=dumb` disables it. Piped output and report files contain no ANSI codes. [Five offline captures](docs/terminal-captures/) show color TTY, `NO_COLOR=1`, `LC_ALL=C`, `COLUMNS=50`, and piped output; regenerate them with `python3 -B tests/capture_terminal.py`.
+The boxed summary gives the readiness verdict, direct-check counts, per-category counts, categories needing attention, manual-review counts, and the RUM limitation. Report paths show the directory once and one complete filename per line. RUM checks are VM-side sanity checks; end-user browser connectivity remains untested. Terminal color appears only on a TTY, and `NO_COLOR=1` or `TERM=dumb` disables it. Piped output and report files contain no ANSI codes. [Six offline captures](docs/terminal-captures/) show color TTY, `NO_COLOR=1`, `LC_ALL=C`, `COLUMNS=50`, piped output, and Ctrl-C; regenerate them with `python3 -B tests/capture_terminal.py`.
 
 ```text
-  STATUS DESTINATION                                 DNS  TCP  TLS HTTP
+  STATUS DESTINATION                                      DNS  TCP  TLS HTTP
 
- CONTAINER REGISTRIES ------------------------------------------  1 [OK]  4 [!!]
-  WARN   registry.datadoghq.com                       ok   ok   ok 302>206
-  WARN   gcr.io                                       ok   ok   ok 302>200
-       -> 4 redirects; check HTTPS targets in proxy/firewall.
+ CONTAINER REGISTRIES ---------------------------------------------------------
+  PASS   registry.datadoghq.com                            ok   ok   ok 302>206
+  PASS   gcr.io                                            ok   ok   ok 302>200
+  WARN   us-docker.pkg.dev                                 ok   ok   ok 302>200
+       -> Unexpected redirect target; possible proxy/captive portal block page.
+       -> Allow docs.datadoghq.com, accounts.google.com.
 
 +- SUMMARY --------------------------------------------------------------------+
 |  [!!]  READY WITH WARNINGS                                                   |
-|  [OK] 4 pass    [!!] 5 warn    [XX] 0 fail    [??] 2 review                  |
+|  [OK] 8 pass    [!!] 2 warn    [XX] 0 fail    [??] 5 review                  |
+|  By category                                                                 |
+|    container registries: 5 pass, 1 warn, 0 fail, 0 review                    |
 |  Needs attention                                                             |
-|    [!!] container registries: 4 redirect target(s) to verify               |
-|  Manual review: 2 wildcard allowlist; 0 other requirement(s)               |
-|  RUM: VM-side sanity only; end-user browser connectivity untested           |
+|    [!!] container registries: 1 unexpected redirect(s); inspect proxy       |
+|  Manual review: 2 wildcard allowlist; 3 other requirement(s)                |
+|  RUM: VM-side sanity only; end-user browser connectivity untested            |
 +------------------------------------------------------------------------------+
 
-  TXT  /home/ave/reports/dd-network-preflight-eminerba-lab-<stamp>.txt
-  JSON /home/ave/reports/dd-network-preflight-eminerba-lab-<stamp>.json
+  Reports: /home/ave/reports
+  TXT  dd-network-preflight-eminerba-lab-<stamp>.txt
+  JSON dd-network-preflight-eminerba-lab-<stamp>.json
 ```
 
 This is an illustrative excerpt, not evidence about your VM. The TXT report keeps every DNS/CNAME answer, IP probe, certificate detail and response timing; JSON keeps the machine-readable fields. The compact terminal view and detailed files report the same readiness result.
@@ -137,7 +142,8 @@ Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY T
 | HTTP 5xx or proxy 407 | WARN; a service or proxy returned an error |
 | Diagnostic response-body cap after verified HTTPS response | PASS; sampling stopped intentionally and is noted |
 | Single same-host HTTPS redirect with verified follow-up | PASS; original and follow-up responses remain visible |
-| Cross-host or multi-hop redirect | WARN; review all destinations in the chain |
+| Verified registry redirect to its expected host | PASS; redirect host recorded and shared terminal allowlist note shown |
+| Unexpected cross-host or multi-hop redirect | WARN; review all destinations in the chain |
 | Working IPv4 with IPv6 `network unreachable` | TCP PASS; the IPv6 result is recorded separately |
 | Additional DNS answers beyond four sampled addresses | Coverage note; sampled results determine TCP status |
 | Original endpoint responds, redirect follow-up fails | WARN for original endpoint; separate redirect FAIL stays visible |
@@ -173,7 +179,7 @@ An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unve
 
 RUM intake, quota, Browser Logs, and applicable `sdk-configuration` endpoints are **SERVER-SIDE SANITY CHECK ONLY**. A VM PASS does not validate an end-user's DNS, firewall, FortiGate, Zscaler, browser security product, CSP, SDK configuration, or corporate proxy. RUM failure alone does not block server readiness. RUM Remote Configuration is marked NOT APPLICABLE on government sites because its documentation explicitly excludes them.
 
-`*.agent.<site>` and applicable `*.<RUM domain>` are reported separately as **ALLOWLIST REQUIREMENT / NOT DIRECTLY TESTABLE**. No literal wildcard is queried. For installed stable Agent releases, the documented `<version>-app.agent.<site>` and `<version>-flare.agent.<site>` convention is used. Unknown/prerelease versions remain untested. No Agent is installed, and resolving the parent domain never satisfies a wildcard.
+`*.agent.<site>` and applicable `*.<RUM domain>` are reported separately as **ALLOWLIST REQUIREMENT / NOT DIRECTLY TESTABLE**. No literal wildcard is queried. For a known stable Agent version, the documented `<version>-app.agent.<site>` and `<version>-flare.agent.<site>` hostnames are probed. The version comes from `--agent-version X.Y.Z`, `DD_PREFLIGHT_AGENT_VERSION`, `datadog-agent version`, `dpkg -s datadog-agent`, or `rpm -q datadog-agent` in that order. If no supported version is available, both versioned entries remain REVIEW. Resolving the parent domain never satisfies a wildcard.
 
 ## Proxy behavior and privacy
 
@@ -185,7 +191,7 @@ No proxy configuration is changed. curlrc is disabled so user options cannot inj
 
 Required: Bash 4+, curl, and ordinary Linux utilities (`awk`, `sed`, `grep`, `head`, `tee`, `wc`, `tr`, `date`, `hostname`, `mktemp`, `mkdir`, `mv`, `rm`, `rmdir`, `dirname`, `uname`). Expected: `getent`. Optional: `dig`, `nslookup`, `openssl`, `timeout`. `nc` availability is displayed but it is not needed. No jq, yq or Python runtime dependency. On systems lacking `timeout`, only inherently bounded DNS tools and curl are used; detail stages are skipped.
 
-TXT and JSON reports are automatically saved under `reports/` with host, UTC timestamp and a collision-resistant suffix. Files use a restrictive umask; the directory must be owned by the current user and must not be a symlink. Reports contain no ANSI colors. JSON schema version 1.2 (tool 0.1.2) includes metadata, site, dependency/proxy detection, categories, endpoint stages, certificate metadata, direct endpoint PASS/WARN/FAIL counts, allowlist requirements, untested requirements, blockers and overall status. HTTP numeric metadata is represented as strings, with empty strings for unavailable values. `http_result` describes the original endpoint; `http_result.redirect_result` holds follow-up status, URL, IP, TLS result, redirect count and elapsed time. `attempts` arrays retain bounded HTTP/TLS probe histories. Summary blockers include the failure reason, not just a status code. Interrupted runs leave private intermediate files under `.run-*`; these are incomplete and must not be treated as final reports.
+TXT and JSON reports are automatically saved under `reports/` with host, UTC timestamp and a collision-resistant suffix. Files use a restrictive umask; the directory must be owned by the current user and must not be a symlink. Reports contain no ANSI colors. JSON schema version 1.3 (tool 0.1.4) includes metadata, site, dependency/proxy detection, categories, endpoint stages, certificate metadata, direct endpoint PASS/WARN/FAIL counts, allowlist requirements, untested requirements, blockers and overall status. Each endpoint has a `redirect_host` field (empty if no redirect); TXT includes a `Redirect host` line. HTTP numeric metadata is represented as strings, with empty strings for unavailable values. `http_result` describes the original endpoint; `http_result.redirect_result` holds follow-up status, URL, IP, TLS result, redirect count and elapsed time. `attempts` arrays retain bounded HTTP/TLS probe histories. Summary blockers include the failure reason, not just a status code. Interrupted runs leave private intermediate files under `.run-*`; these are incomplete and must not be treated as final reports.
 
 Illustrative excerpt (not evidence about your VM):
 

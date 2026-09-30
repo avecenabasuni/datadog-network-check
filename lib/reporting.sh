@@ -279,7 +279,7 @@ terminal_row() {
     host_width=$((width-33))
     shown=$(terminal_middle_host "$host" "$host_width")
     printf -v status_field '%-6s' "$state"
-    printf -v stages '%4s %4s %4s %-8s' "$dns" "$tcp" "$tls" "$http"
+    printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"
     if terminal_color_enabled; then
         case $state in
             PASS) color=$'\033[32m';;
@@ -300,7 +300,7 @@ terminal_table_header() {
         printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
     else
         host_width=$((width-33))
-        printf '\n  %-6s %-*s %4s %4s %4s %-8s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
+        printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
     fi
 }
 terminal_endpoint() {

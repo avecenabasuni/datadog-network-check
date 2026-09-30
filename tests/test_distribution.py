@@ -9,7 +9,7 @@ import test_checker
 ROOT = test_checker.ROOT
 COMMAND = next(line for line in (ROOT / 'README.md').read_text().splitlines()
                if line.startswith("bash -c 's=$(SSLKEYLOGFILE= curl "))
-DOWNLOAD_URL = re.search(r'https://raw\.githubusercontent\.com/[^\s)]+', COMMAND).group(0)
+DOWNLOAD_URL = re.search(r'https://raw\.githubusercontent\.com/[^\s)\"]+', COMMAND).group(0)
 
 
 class DistributionTests(unittest.TestCase):
@@ -74,7 +74,7 @@ PAYLOAD
     def test_full_interactive_bundle_without_checkout(self):
         self.env['BUNDLE_PATH'] = str(ROOT / 'dist/dd-network-check.sh')
         self.write_command('curl', fr'''
-if [[ ${{*: -1}} == {DOWNLOAD_URL} ]]; then
+if [[ ${{*: -1}} == "{DOWNLOAD_URL}" ]]; then
     cat "$BUNDLE_PATH"
 else
     printf '%s\n' "$*" >> "$MOCK_LOG"
