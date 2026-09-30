@@ -31,7 +31,7 @@ bash tests/run.sh
 
 Commit the updated bundle alongside the source changes. `tests/run.sh` first checks that the distribution is fresh and parses as Bash. A stale bundle fails the suite. `python3 -B scripts/build_standalone.py --check` performs a read-only freshness check.
 
-The README defaults to the moving `main` branch for convenient distribution. An engineer can substitute a reviewed full commit SHA for repeatable execution. SHA-pinning selects a reviewed repository version; the embedded source digest detects build drift and is not a signature or a separate trust anchor. GitHub access and its certificate chain are distribution prerequisites, distinct from the Datadog network results. In restricted environments, distribute the same single file offline.
+The README pins a reviewed full commit SHA for repeatable execution. A moving `main` raw URL can briefly serve an older cached bundle after a push. Update the pinned SHA when publishing a newer reviewed bundle. SHA-pinning selects a reviewed repository version; the embedded source digest detects build drift and is not a signature or a separate trust anchor. GitHub access and its certificate chain are distribution prerequisites, distinct from the Datadog network results. In restricted environments, distribute the same single file offline.
 
 ## Verification
 

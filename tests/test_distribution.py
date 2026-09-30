@@ -1,5 +1,6 @@
 """Exercise the published command and standalone bundle without network calls."""
 import json
+import re
 import subprocess
 import unittest
 
@@ -8,6 +9,7 @@ import test_checker
 ROOT = test_checker.ROOT
 COMMAND = next(line for line in (ROOT / 'README.md').read_text().splitlines()
                if line.startswith("bash -c 's=$(SSLKEYLOGFILE= curl "))
+DOWNLOAD_URL = re.search(r'https://raw\.githubusercontent\.com/[^\s)]+', COMMAND).group(0)
 
 
 class DistributionTests(unittest.TestCase):
@@ -63,8 +65,7 @@ PAYLOAD
         self.assertEqual(result.returncode, 1, result.stderr)
         self.assertEqual(result.stdout.strip(), 'selection=5 arguments=--site,us5')
         args = (self.root / 'calls').read_text()
-        for expected in ['-qfsSm60',
-                         '/main/dist/dd-network-check.sh']:
+        for expected in ['-qfsSm60', DOWNLOAD_URL]:
             self.assertIn(expected, args)
         self.assertNotIn('-L', args)
         self.assertNotIn('--location', args)
@@ -72,8 +73,8 @@ PAYLOAD
 
     def test_full_interactive_bundle_without_checkout(self):
         self.env['BUNDLE_PATH'] = str(ROOT / 'dist/dd-network-check.sh')
-        self.write_command('curl', r'''
-if [[ ${*: -1} == https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh ]]; then
+        self.write_command('curl', fr'''
+if [[ ${{*: -1}} == {DOWNLOAD_URL} ]]; then
     cat "$BUNDLE_PATH"
 else
     printf '%s\n' "$*" >> "$MOCK_LOG"

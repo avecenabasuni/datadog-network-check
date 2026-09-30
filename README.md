@@ -22,7 +22,7 @@ Passing the first DOES NOT prove the second.
 From a writable directory on the Linux VM, paste this single command:
 
 ```bash
-bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh) || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
+bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/94ee4e4775a73a1e5489fccf61f4e4eac17fcd2c/dist/dd-network-check.sh) || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
 ```
 
 Select a Datadog site when prompted; the **entire scan** runs automatically. The generated single-file distribution includes every runtime module and both manifests. No clone, unpacking, package installation, API key, or product selection is needed. Runtime requirements remain Bash 4+, curl and the standard Linux utilities listed below; Python and Git are not required on the customer VM.
@@ -31,7 +31,7 @@ The download completes successfully before execution begins. The compact `-qfsSm
 
 **Reports are saved in `./reports/` under the directory where you run the command**, even if no repository checkout exists. The downloaded program and embedded manifests stay in memory; no installation or temporary extraction directory is created. Generated TXT/JSON files and exit codes are the same as local execution.
 
-The URL above runs the current `main` version and requires outbound access to `raw.githubusercontent.com` in addition to the Datadog destinations being tested. For a reviewed immutable version, replace `main` in the URL with a full Git commit SHA from this repository. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
+The URL above pins the tested terminal-display release at commit `94ee4e4`, so it avoids stale responses from GitHub's moving `main` raw URL. Replace the full commit SHA after reviewing a newer release. The VM needs outbound access to `raw.githubusercontent.com` in addition to the Datadog destinations being tested. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
 
 For unattended execution, append `-- --site us1` after the closing quote of the one-command invocation. With no arguments, interactive selection remains the default. See [distribution design and tests](docs/DISTRIBUTION.md).
 
