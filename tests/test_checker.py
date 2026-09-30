@@ -343,6 +343,28 @@ dns_check example.com; echo "${E[dns]} ${E[cname]}"; echo "${E[cnames]}"; echo "
                 ' - Commit: example"; }; detect_agent_version; echo "$AGENT_VERSION"')
             self.assertEqual(output, expected)
 
+    def test_agent_version_parsing_from_dpkg_and_rpm_samples(self):
+        dpkg = self.run_code("agent_version_from_output $'Package: datadog-agent\\nVersion: 1:7.75.0-1\\n' dpkg; "
+                             'printf "%s %s" "$AGENT_VERSION" "$AGENT_VERSION_DISPLAY"')
+        rpm = self.run_code("agent_version_from_output 'datadog-agent-7.76.1-1.x86_64' rpm; "
+                            'printf "%s %s" "$AGENT_VERSION" "$AGENT_VERSION_DISPLAY"')
+        self.assertEqual(dpkg, '7-75-0 7.75.0')
+        self.assertEqual(rpm, '7-76-1 7.76.1')
+
+    def test_agent_version_detection_order_and_overrides(self):
+        output = self.run_code("have() { [[ $1 == dpkg || $1 == timeout ]]; }; "
+            "timeout() { echo 'Version: 1:7.75.0-1'; }; detect_agent_version; "
+            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
+        self.assertEqual(output, 'dpkg 7-75-0')
+        output = self.run_code("have() { [[ $1 == rpm || $1 == timeout ]]; }; "
+            "timeout() { echo 'datadog-agent-7.76.1-1.x86_64'; }; detect_agent_version; "
+            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
+        self.assertEqual(output, 'rpm 7-76-1')
+        output = self.run_code("CLI_AGENT_VERSION=7.77.0; DD_PREFLIGHT_AGENT_VERSION=7.75.0; "
+            "have() { return 1; }; detect_agent_version; "
+            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
+        self.assertEqual(output, 'flag 7-77-0')
+
     def test_tls_sni_verification(self):
         code = r'''
 E[tcp_ip]=2001:db8::1
@@ -588,6 +610,33 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
         self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+
+    def test_version_override_probes_versioned_agent_hostname(self):
+        (self.root / 'config/endpoints.conf').write_text(
+            '# last_verified_against_datadog_docs=2026-09-29\n'
+            'metrics|agent|Metrics|{version}-app.agent.{site}|443|https|all|version|required|all|/|-|https://example.com/docs\n'
+            'flare|agent|Flare|{version}-flare.agent.{site}|443|https|all|version|informational|all|/|-|https://example.com/docs\n')
+        self.env['DD_PREFLIGHT_AGENT_VERSION'] = '7.74.0'
+        result = bash('./dd-network-check.sh --site us1 --agent-version 7.75.0', self.env, self.root)
+        self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+        report = json.loads(next((self.root / 'reports').glob('*.json')).read_text())
+        self.assertEqual([endpoint['hostname'] for endpoint in report['endpoints']], [
+            '7-75-0-app.agent.datadoghq.com', '7-75-0-flare.agent.datadoghq.com'])
+        self.assertEqual([endpoint['classification'] for endpoint in report['endpoints']],
+                         ['DIRECT TEST', 'DIRECT TEST'])
+        self.assertIn('Agent: 7.75.0', result.stdout)
+        self.assertNotIn('7-74-0-app', result.stdout)
+
+    def test_missing_agent_version_keeps_versioned_host_review(self):
+        (self.root / 'config/endpoints.conf').write_text(
+            '# last_verified_against_datadog_docs=2026-09-29\n'
+            'metrics|agent|Metrics|{version}-app.agent.{site}|443|https|all|version|required|all|/|-|https://example.com/docs\n')
+        for command in ('datadog-agent', 'dpkg', 'rpm'):
+            self.write_command(command, 'exit 1')
+        result, report = self.scan(1)
+        self.assertEqual(report['endpoints'][0]['classification'], 'NOT DIRECTLY TESTABLE')
+        self.assertIn('Agent: not determined', result.stdout)
+        self.assertNotIn('7-75-0-app', (self.root / 'calls').read_text() if (self.root / 'calls').exists() else '')
 
     def test_summary_lists_only_categories_needing_attention(self):
         self.manifest('wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')

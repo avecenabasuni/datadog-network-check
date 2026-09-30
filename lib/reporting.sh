@@ -257,7 +257,7 @@ terminal_intro() {
     printf '\n'
     terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
     [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
-    printf '  Agent: %s\n' "${AGENT_VERSION:-not determined}"
+    printf '  Agent: %s\n' "${AGENT_VERSION_DISPLAY:-not determined}"
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac

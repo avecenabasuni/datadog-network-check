@@ -23,13 +23,14 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
-    SITE=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
+            --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and local Agent detection.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -80,7 +81,8 @@ main() {
     emit ''; emit 'Proxy Environment'; proxy_snapshot
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
-    detect_agent_version; emit "Installed stable Agent version: ${AGENT_VERSION:-not determined}"
+    detect_agent_version || return 3
+    emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()

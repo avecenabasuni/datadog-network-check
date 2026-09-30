@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=4bee4be813ecf1012531868d10db51a7dd449c8f9dd8ebd5d8941a9c9b82804f
+# source_sha256=f530b984aafae71f22336bb002fc99a5cb5bdd5af88cc5e5ae7a200acabe245b
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -210,14 +210,47 @@ lambda-logs|excluded|lambda-logs|not-applicable|443|https|all|excluded|informati
 DD_PREFLIGHT_ENDPOINTS_MANIFEST_EOF
     [[ $VERIFIED =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && $count -gt 0 ]] || { error 'Missing manifest verification date or empty manifest'; return 1; }
 }
+set_agent_version() {
+    [[ $1 =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+    AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    AGENT_VERSION_DISPLAY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+}
+agent_version_from_output() {
+    local output=$1 source=$2 version=''
+    case $source in
+        command) [[ $output =~ Agent[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)([[:space:]]|$) ]] && version=${BASH_REMATCH[1]};;
+        dpkg) [[ $output =~ Version:[[:space:]]*([0-9]+:)?([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[2]};;
+        rpm) [[ $output =~ datadog-agent-([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[1]};;
+    esac
+    [[ -n $version ]] && set_agent_version "$version"
+}
 detect_agent_version() {
-    AGENT_VERSION=''; local output
-    if have datadog-agent && have timeout; then
-        output=$(timeout -k 1 3 datadog-agent version 2>/dev/null)
-        if [[ $output =~ Agent[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
-            AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
-        fi
+    local output
+    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'
+    if [[ -n ${CLI_AGENT_VERSION-} ]]; then
+        set_agent_version "$CLI_AGENT_VERSION" || { error 'Invalid --agent-version; use X.Y.Z'; return 1; }
+        AGENT_VERSION_SOURCE=flag; return 0
     fi
+    if [[ -n ${DD_PREFLIGHT_AGENT_VERSION-} ]]; then
+        set_agent_version "$DD_PREFLIGHT_AGENT_VERSION" || { error 'Invalid DD_PREFLIGHT_AGENT_VERSION; use X.Y.Z'; return 1; }
+        AGENT_VERSION_SOURCE=environment; return 0
+    fi
+    if have datadog-agent; then
+        if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
+        else output=$(datadog-agent version 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE=command; return 0; fi
+    fi
+    if have dpkg; then
+        if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''
+        else output=$(dpkg -s datadog-agent 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" dpkg; then AGENT_VERSION_SOURCE=dpkg; return 0; fi
+    fi
+    if have rpm; then
+        if have timeout; then output=$(timeout -k 1 3 rpm -q datadog-agent 2>/dev/null) || output=''
+        else output=$(rpm -q datadog-agent 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" rpm; then AGENT_VERSION_SOURCE=rpm; return 0; fi
+    fi
+    return 0
 }
 classify_result() {
     local field
@@ -842,7 +875,7 @@ terminal_intro() {
     printf '\n'
     terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
     [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
-    printf '  Agent: %s\n' "${AGENT_VERSION:-not determined}"
+    printf '  Agent: %s\n' "${AGENT_VERSION_DISPLAY:-not determined}"
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -1251,13 +1284,14 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
-    SITE=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
+            --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and local Agent detection.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -1308,7 +1342,8 @@ main() {
     emit ''; emit 'Proxy Environment'; proxy_snapshot
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
-    detect_agent_version; emit "Installed stable Agent version: ${AGENT_VERSION:-not determined}"
+    detect_agent_version || return 3
+    emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()

@@ -124,14 +124,47 @@ validate_manifest() {
     done < "$ROOT/config/endpoints.conf"
     [[ $VERIFIED =~ ^[0-9]{4}-[0-9]{2}-[0-9]{2}$ && $count -gt 0 ]] || { error 'Missing manifest verification date or empty manifest'; return 1; }
 }
+set_agent_version() {
+    [[ $1 =~ ^([0-9]+)\.([0-9]+)\.([0-9]+)$ ]] || return 1
+    AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
+    AGENT_VERSION_DISPLAY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+}
+agent_version_from_output() {
+    local output=$1 source=$2 version=''
+    case $source in
+        command) [[ $output =~ Agent[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)([[:space:]]|$) ]] && version=${BASH_REMATCH[1]};;
+        dpkg) [[ $output =~ Version:[[:space:]]*([0-9]+:)?([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[2]};;
+        rpm) [[ $output =~ datadog-agent-([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[1]};;
+    esac
+    [[ -n $version ]] && set_agent_version "$version"
+}
 detect_agent_version() {
-    AGENT_VERSION=''; local output
-    if have datadog-agent && have timeout; then
-        output=$(timeout -k 1 3 datadog-agent version 2>/dev/null)
-        if [[ $output =~ Agent[[:space:]]+([0-9]+)\.([0-9]+)\.([0-9]+)([[:space:]]|$) ]]; then
-            AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
-        fi
+    local output
+    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'
+    if [[ -n ${CLI_AGENT_VERSION-} ]]; then
+        set_agent_version "$CLI_AGENT_VERSION" || { error 'Invalid --agent-version; use X.Y.Z'; return 1; }
+        AGENT_VERSION_SOURCE=flag; return 0
     fi
+    if [[ -n ${DD_PREFLIGHT_AGENT_VERSION-} ]]; then
+        set_agent_version "$DD_PREFLIGHT_AGENT_VERSION" || { error 'Invalid DD_PREFLIGHT_AGENT_VERSION; use X.Y.Z'; return 1; }
+        AGENT_VERSION_SOURCE=environment; return 0
+    fi
+    if have datadog-agent; then
+        if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
+        else output=$(datadog-agent version 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE=command; return 0; fi
+    fi
+    if have dpkg; then
+        if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''
+        else output=$(dpkg -s datadog-agent 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" dpkg; then AGENT_VERSION_SOURCE=dpkg; return 0; fi
+    fi
+    if have rpm; then
+        if have timeout; then output=$(timeout -k 1 3 rpm -q datadog-agent 2>/dev/null) || output=''
+        else output=$(rpm -q datadog-agent 2>/dev/null) || output=''; fi
+        if agent_version_from_output "$output" rpm; then AGENT_VERSION_SOURCE=rpm; return 0; fi
+    fi
+    return 0
 }
 classify_result() {
     local field
