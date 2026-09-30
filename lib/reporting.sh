@@ -21,9 +21,46 @@ terminal_status() {
 terminal_narrow() {
     [[ ${COLUMNS-} =~ ^[0-9]+$ ]] && ((10#$COLUMNS < 80))
 }
+terminal_banner() {
+    if terminal_narrow; then
+        printf 'DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
+    else
+        printf '%s\n' '+------------------------------------------------------------------------------+'
+        printf '| %-76s |\n' "DATADOG NETWORK PREFLIGHT  v$TOOL_VERSION"
+        printf '%s\n' '+------------------------------------------------------------------------------+'
+    fi
+}
+terminal_wrap() {
+    local rest=$1 prefix=$2 continuation=$3 width=80 limit chunk suffix
+    if terminal_narrow; then width=$((10#$COLUMNS)); fi
+    ((width>=30)) || width=30
+    while ((${#prefix}+${#rest} > width)); do
+        limit=$((width-${#prefix}))
+        chunk=${rest:0:limit}
+        if [[ $chunk == *'; '* ]]; then
+            suffix=${chunk##*; }
+            if ((${#suffix}<25)); then chunk="${chunk%; *};"
+            else chunk=${chunk% *}; fi
+        elif [[ $chunk == *' '* ]]; then
+            chunk=${chunk% *}
+        fi
+        [[ -n $chunk ]] || chunk=${rest:0:limit}
+        printf '%s%s\n' "$prefix" "$chunk"
+        rest=${rest:${#chunk}}
+        rest=${rest# }
+        prefix=$continuation
+    done
+    printf '%s%s\n' "$prefix" "$rest"
+}
 terminal_section() {
     local title=${1//_/ }
-    printf '\n%s\n' "${title^^}"
+    if [[ $title == SUMMARY ]] && ! terminal_narrow; then
+        printf '\n%s\n' '+------------------------------------------------------------------------------+'
+        printf '| %-76s |\n' SUMMARY
+        printf '%s\n' '+------------------------------------------------------------------------------+'
+    else
+        printf '\n[ %s ]\n' "${title^^}"
+    fi
     if [[ $title != SUMMARY && ${TERMINAL_HEADER_SHOWN-} != 1 ]] && ! terminal_narrow; then
         printf '  %-6s %-45s %4s %4s %4s %s\n' STATUS DESTINATION DNS TCP TLS HTTP
         TERMINAL_HEADER_SHOWN=1
@@ -31,15 +68,16 @@ terminal_section() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    printf '\n%-7s %s\n' Host "$MACHINE"
-    printf '%-7s %s\n' OS "$OS_NAME"
-    printf '%-7s %s (%s)\n' Site "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
-    printf '%-7s %s\n' Agent "${AGENT_VERSION:-not determined}"
-    printf '%-7s %s\n' Tools "${available:-none}"
-    [[ -z $unavailable ]] || printf '%-7s %s\n' Missing "$unavailable"
-    if ((PROXY_PRESENT)); then printf '%-7s %s\n' Proxy 'configured (values withheld)'
-    else printf '%-7s %s\n' Proxy 'not configured'; fi
-    printf '%-7s %s\n' Scan 'all documented destinations; detailed TXT/JSON reports follow'
+    printf '\n[ SCAN CONTEXT ]\n'
+    printf '  %-7s : %s\n' Host "$MACHINE"
+    printf '  %-7s : %s\n' OS "$OS_NAME"
+    printf '  %-7s : %s (%s)\n' Site "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
+    printf '  %-7s : %s\n' Agent "${AGENT_VERSION:-not determined}"
+    printf '  %-7s : %s\n' Tools "${available:-none}"
+    [[ -z $unavailable ]] || printf '  %-7s : %s\n' Missing "$unavailable"
+    if ((PROXY_PRESENT)); then printf '  %-7s : %s\n' Proxy 'configured (values withheld)'
+    else printf '  %-7s : %s\n' Proxy 'not configured'; fi
+    printf '  %-7s : %s\n' Scan 'all documented destinations; detailed TXT/JSON reports follow'
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -90,12 +128,12 @@ terminal_endpoint() {
                 detail="redirect follow-up ${E[redirect_http]}: ${E[redirect_http_detail]} (${E[redirect_final_url]})"
             fi
         fi
-        printf '       %s: %s\n' "${field^^}" "$detail"
+        terminal_wrap "${field^^}: $detail" '       ' '             '
     done
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
-        printf '       Possible security filtering; review the TXT report.\n'
+        terminal_wrap 'Possible security filtering; review the TXT report.' '       ' '             '
     elif [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
-        printf '       Response contains denial/filter wording; review the TXT report.\n'
+        terminal_wrap 'Response contains denial/filter wording; review the TXT report.' '       ' '             '
     fi
 }
 report_init() {
@@ -253,11 +291,12 @@ report_finish() {
     done
     if ((${#BLOCKERS[@]})); then
         printf '\nBlockers:\n'
-        for line in "${BLOCKERS[@]}"; do printf '  - %s\n' "$line"; done
+        for line in "${BLOCKERS[@]}"; do terminal_wrap "$line" '  - ' '    '; done
     fi
     if ((${#ALLOWLIST[@]} || ${#UNTESTED[@]})); then
         printf '\nManual review: %s wildcard allowlist, %s other untested requirement(s).\n' "${#ALLOWLIST[@]}" "${#UNTESTED[@]}"
     fi
     printf 'RUM: VM-side sanity only; end-user browser connectivity is untested.\n'
-    printf 'Reports:\n  TXT  %s.txt\n  JSON %s.json\n' "$REPORT_BASE" "$REPORT_BASE"
+    printf '\nReports: %s\n' "${REPORT_BASE%/*}"
+    printf '  TXT  %s.txt\n  JSON %s.json\n' "${REPORT_BASE##*/}" "${REPORT_BASE##*/}"
 }

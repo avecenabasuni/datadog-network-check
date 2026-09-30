@@ -102,6 +102,14 @@ class UnitTests(unittest.TestCase):
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
+    def test_terminal_wraps_long_diagnostic_at_80_columns(self):
+        output = self.run_code("terminal_wrap 'HTTP: redirected to "
+            "https://accounts.google.com/[path omitted]; review destination allowlist' "
+            "'       ' '             '")
+        self.assertLessEqual(max(map(len, output.splitlines())), 80)
+        self.assertIn('https://accounts.google.com/[path omitted];', output)
+        self.assertIn('review destination allowlist', output)
+
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
         self.assertEqual(output, 'https://example.com/[path omitted]')
@@ -400,11 +408,14 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertIn('9) US2-FED', result.stdout)
         self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
         self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.3'), 1)
+        self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
         self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', result.stdout)
         self.assertRegex(result.stdout, r'PASS\s+example\.com\s+ok\s+ok\s+ok\s+403')
         self.assertNotIn('TLS probe', result.stdout)
         self.assertNotIn('CNAME chain', result.stdout)
         self.assertNotIn('\x1b', result.stdout)
+        self.assertIn('Reports: ' + str(self.root / 'reports'), result.stdout)
+        self.assertIn('  TXT  dd-network-preflight-', result.stdout)
         detailed = next((self.root / 'reports').glob('*.txt')).read_text()
         self.assertIn('TLS probe', detailed)
         self.assertIn('DNS               PASS', detailed)
@@ -425,7 +436,7 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
     def test_summary_lists_only_categories_needing_attention(self):
         self.manifest('wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
         result, report = self.scan(1)
-        summary = result.stdout.split('\nSUMMARY\n', 1)[1]
+        summary = result.stdout.split('SUMMARY', 1)[1]
         self.assertIn('READY WITH WARNINGS', summary)
         self.assertIn('Direct endpoint checks: 1 PASS, 0 WARN, 0 FAIL', summary)
         self.assertRegex(summary, r'WARN\s+rum')

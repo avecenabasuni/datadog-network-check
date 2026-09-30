@@ -37,10 +37,14 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
-    printf 'DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
+    terminal_banner
     if [[ -z $SITE ]]; then
-        printf '\nSelect Datadog Site:\n\n'; i=0
-        for choice in "${SITE_CODES[@]}"; do ((i+=1)); printf '%s) %s\n' "$i" "${SITE_LABELS[$choice]}"; done
+        printf '\n[ SELECT DATADOG SITE ]\n'; i=0
+        for choice in "${SITE_CODES[@]}"; do
+            ((i+=1))
+            printf '  %-14s' "$i) ${SITE_LABELS[$choice]}"
+            ((i%3)) || printf '\n'
+        done
         while :; do
             printf '\nChoice: '
             IFS= read -r choice || { error 'Site selection ended; use --site for unattended runs'; return 3; }
