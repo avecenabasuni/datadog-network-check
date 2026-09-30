@@ -55,6 +55,7 @@ main() {
             if [[ $choice =~ ^[1-9]$ ]]; then SITE=${SITE_CODES[choice-1]}; break; fi
             printf 'Choose a number from 1 to 9.\n'
         done
+        printf '\n'
     fi
     [[ $SITE =~ ^[a-z0-9-]+$ && -n ${SITE_LABELS[$SITE]-} ]] || { error 'Unknown Datadog site'; return 3; }
     MACHINE=$(hostname | clean); TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -87,9 +88,9 @@ main() {
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
     declare -gA TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=() TERMINAL_GROUP_HOSTS=() TERMINAL_GROUP_HOST_SEEN=()
-    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=() TERMINAL_NOTE_KEY=()
+    declare -ga CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_ORDER=() TERMINAL_NOTE_KEY=() TERMINAL_OTHER_REQUIREMENTS=()
     OVERALL=READY; LAST_CATEGORY=''; LAST_TERMINAL_CATEGORY=''; DIRECT_PASS=0; DIRECT_WARN=0; DIRECT_FAIL=0
-    TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TICK=0
+    TERMINAL_UNSPECIFIED_COUNT=0; TERMINAL_PROGRESS_DONE=0; TERMINAL_PROGRESS_TICK=0
     TERMINAL_PROGRESS_TOTAL=$(terminal_destination_count)
     terminal_table_header
     for line in "${RECORDS[@]}"; do

@@ -436,32 +436,33 @@ terminal_box_wrap() {
     terminal_box_line "$rest" "$state"
 }
 terminal_summary_reason() {
-    local category=$1 state=$2 count=$3 index field
-    if [[ $state == FAIL ]]; then
-        printf '%s blocked endpoint(s); inspect failures in TXT report' "$count"
-        return
-    fi
-    if [[ $state == REVIEW ]]; then
-        printf '%s untested requirement(s); check allowlist or configuration' "$count"
+    local category=$1 failed=$2 warned=$3 index field
+    if ((failed)); then
+        if ((warned)); then printf '%s blocked, %s warning(s); see TXT report' "$failed" "$warned"
+        else printf '%s blocked endpoint(s); see TXT report' "$failed"; fi
         return
     fi
     for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
         [[ ${TERMINAL_ORDER[index]} == "$category" && ${TERMINAL_SNAP["$index:impact"]-} == WARN ]] || continue
         if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Denial/filter wording observed'* ]]; then
-            printf '%s denial/filter response(s); check TXT report' "$count"
+            printf '%s denial/filter response(s); see TXT report' "$warned"
+            return
+        fi
+        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Unexpected redirect target'* ]]; then
+            printf '%s unexpected redirect(s); inspect proxy' "$warned"
             return
         fi
         for field in dns tcp tls http; do
             if [[ ${TERMINAL_SNAP["$index:$field"]-} == WARN ]]; then
-                printf '%s %s warning(s); check TXT report' "$count" "${field^^}"
+                printf '%s %s warning(s); see TXT report' "$warned" "${field^^}"
                 return
             fi
         done
     done
-    printf '%s endpoint warning(s); check TXT report' "$count"
+    printf '%s endpoint warning(s); see TXT report' "$warned"
 }
 terminal_summary() {
-    local category status count review_count=0 attention=0 line
+    local category count review_count=0 attention=0 line passed warned failed reviewed state
     local verdict=$OVERALL width
     width=$(terminal_width)
     [[ $verdict != BLOCKED ]] || verdict='NOT READY'
@@ -477,15 +478,25 @@ terminal_summary() {
         terminal_box_wrap "$(terminal_symbol PASS) $DIRECT_PASS pass    $(terminal_symbol WARN) $DIRECT_WARN warn    $(terminal_symbol FAIL) $DIRECT_FAIL fail    $(terminal_symbol REVIEW) $review_count review"
     fi
     terminal_box_line ''
+    terminal_box_line 'By category'
+    for category in "${CATEGORY_ORDER[@]}"; do
+        passed=${TERMINAL_COUNTS["$category:PASS"]-0}
+        warned=${TERMINAL_COUNTS["$category:WARN"]-0}
+        failed=${TERMINAL_COUNTS["$category:FAIL"]-0}
+        reviewed=${TERMINAL_COUNTS["$category:REVIEW"]-0}
+        ((passed+warned+failed+reviewed)) || continue
+        terminal_box_wrap "  ${category//_/ }: $passed pass, $warned warn, $failed fail, $reviewed review" '' '    '
+    done
+    terminal_box_line ''
     terminal_box_line 'Needs attention'
     for category in "${CATEGORY_ORDER[@]}"; do
-        for status in FAIL WARN REVIEW; do
-            count=${TERMINAL_COUNTS["$category:$status"]-0}
-            ((count)) || continue
-            attention=1
-            line="  $(terminal_symbol "$status") ${category//_/ }: $(terminal_summary_reason "$category" "$status" "$count")"
-            terminal_box_wrap "$line" "$status" '    '
-        done
+        failed=${TERMINAL_COUNTS["$category:FAIL"]-0}
+        warned=${TERMINAL_COUNTS["$category:WARN"]-0}
+        ((failed+warned)) || continue
+        attention=1; state=WARN
+        ((failed==0)) || state=FAIL
+        line="  $(terminal_symbol "$state") ${category//_/ }: $(terminal_summary_reason "$category" "$failed" "$warned")"
+        terminal_box_wrap "$line" "$state" '    '
     done
     ((attention)) || terminal_box_line '  None'
     if ((${#BLOCKERS[@]})); then
@@ -495,11 +506,18 @@ terminal_summary() {
     fi
     terminal_box_line ''
     terminal_box_wrap "Manual review: ${#ALLOWLIST[@]} wildcard allowlist; ${#UNTESTED[@]} other requirement(s)" '' '  '
+    for line in "${TERMINAL_OTHER_REQUIREMENTS[@]}"; do
+        terminal_box_wrap "  - $line" '' '    '
+    done
+    if ((${TERMINAL_UNSPECIFIED_COUNT-0})); then
+        terminal_box_wrap "  - $TERMINAL_UNSPECIFIED_COUNT destination-unspecified requirement(s)" '' '    '
+    fi
     terminal_box_wrap 'RUM: VM-side sanity only; end-user browser connectivity untested' '' '  '
     terminal_box_border bottom
     printf '\n'
-    terminal_wrap "$REPORT_BASE.txt" '  TXT  ' '       '
-    terminal_wrap "$REPORT_BASE.json" '  JSON ' '       '
+    printf '  Reports: %s\n' "${REPORT_BASE%/*}"
+    printf '  TXT  %s.txt\n' "${REPORT_BASE##*/}"
+    printf '  JSON %s.json\n' "${REPORT_BASE##*/}"
 }
 report_init() {
     local safe_host stamp
@@ -509,7 +527,7 @@ report_init() {
     mkdir -p -- "$ROOT/reports" || return 1
     if [[ ! -O $ROOT/reports ]]; then error 'Report directory must be owned by the current user'; return 1; fi
     safe_host=${MACHINE//[^a-zA-Z0-9._-]/_}; stamp=$(date -u +%Y%m%d-%H%M%S)
-    RUN_DIR=$(mktemp -d "$ROOT/reports/.run-XXXXXXXX") || return 1
+    RUN_DIR=$(mktemp -d "$ROOT/reports/.run-XXXXXX") || return 1
     REPORT_BASE="$ROOT/reports/dd-network-preflight-$safe_host-$stamp-${RUN_DIR##*.run-}"
     TXT_REPORT="$RUN_DIR/report.txt"; JSON_REPORT="$RUN_DIR/report.json"; ENDPOINT_JSON="$RUN_DIR/endpoints.jsonl"
     : > "$TXT_REPORT" && : > "$ENDPOINT_JSON"
@@ -609,6 +627,13 @@ report_endpoint() {
     esac
     [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' ]] || ALLOWLIST+=("${E[hostname]}")
     [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || UNTESTED+=("${E[hostname]}: ${E[notes]}")
+    if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' && $category == other_requirements ]]; then
+        if [[ -n ${E[label]} && ${E[label]} != '-' ]]; then
+            TERMINAL_OTHER_REQUIREMENTS+=("${E[label]} (${E[protocol]^^}/$port)")
+        elif [[ ${E[hostname]} == destination-unspecified ]]; then
+            ((TERMINAL_UNSPECIFIED_COUNT+=1))
+        fi
+    fi
 }
 report_finish() {
     local category line first=1 index=0

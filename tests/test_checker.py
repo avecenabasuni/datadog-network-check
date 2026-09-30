@@ -551,7 +551,12 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         report = json.loads(reports[0].read_text())
         txt = reports[0].with_suffix('.txt').read_text()
         self.assertNotIn('\x1b', txt)
-        self.assertEqual(len(report['endpoints']), 1 if 'wildcard' not in txt else 2)
+        manifest_rows = [line.split('|') for line in (self.root / 'config/endpoints.conf').read_text().splitlines()
+                         if line and not line.startswith('#')]
+        expected_endpoints = sum(row[6] not in ('windows', 'desktop') and row[7] != 'excluded'
+                                 and (row[9] == 'all' or 'us1' in row[9].split(','))
+                                 for row in manifest_rows)
+        self.assertEqual(len(report['endpoints']), expected_endpoints)
         self.assertEqual(report['metadata']['hostname'], os.uname().nodename)
         return result, report
 
@@ -562,13 +567,15 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.3', result.stdout)
         self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.3'), 1)
         self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
+        self.assertIn('Choice: \nDATADOG NETWORK PREFLIGHT', result.stdout)
         self.assertRegex(result.stdout, r'1 pass.*0 warn.*0 fail.*0 review')
         self.assertRegex(result.stdout, r'PASS\s+example\.com\s+ok\s+ok\s+ok\s+403')
         self.assertNotIn('TLS probe', result.stdout)
         self.assertNotIn('CNAME chain', result.stdout)
         self.assertNotIn('\x1b', result.stdout)
-        self.assertIn('TXT  ' + str(self.root / 'reports'), result.stdout)
-        self.assertIn('JSON ' + str(self.root / 'reports'), result.stdout)
+        self.assertIn('Reports: ' + str(self.root / 'reports'), result.stdout)
+        self.assertRegex(result.stdout, r'(?m)^  TXT  dd-network-preflight-.*\.txt$')
+        self.assertRegex(result.stdout, r'(?m)^  JSON dd-network-preflight-.*\.json$')
         detailed = next((self.root / 'reports').glob('*.txt')).read_text()
         self.assertIn('TLS probe', detailed)
         self.assertIn('DNS               PASS', detailed)
@@ -644,10 +651,36 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         summary = result.stdout.split('SUMMARY', 1)[1]
         self.assertIn('READY WITH WARNINGS', summary)
         self.assertRegex(summary, r'1 pass.*0 warn.*0 fail.*1 review')
-        self.assertIn('rum: 1 untested requirement', summary)
-        self.assertNotIn('agent:', summary)
+        self.assertIn('By category', summary)
+        self.assertIn('rum: 0 pass, 0 warn, 0 fail, 1 review', summary)
+        attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
+        self.assertIn('None', attention)
+        self.assertNotIn('rum:', attention)
         self.assertIn('Manual review: 1 wildcard allowlist', summary)
         self.assertEqual(report['categories'], {'agent': 'PASS', 'rum': 'WARN'})
+
+    def test_other_requirement_description_stays_under_manual_review(self):
+        self.manifest('ntp|other_requirements|NTP targets from Agent configuration|configuration-dependent|123|udp|all|manual|informational|all|/|Review configured servers|https://example.com/docs\n')
+        result, _ = self.scan(1)
+        summary = result.stdout.split('SUMMARY', 1)[1]
+        attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
+        self.assertNotIn('other requirements:', attention)
+        self.assertIn('NTP targets from Agent configuration (UDP/123)', summary)
+
+    def test_summary_merges_rum_warning_and_review(self):
+        self.manifest(
+            'rum-direct|rum|Browser intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|-|https://example.com/docs\n'
+            'rum-wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
+        self.write_command('curl', r'''
+printf 'HTTP/1.1 403 Forbidden\r\n\r\nAccess denied'
+printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
+''')
+        result, _ = self.scan(1)
+        summary = result.stdout.split('SUMMARY', 1)[1]
+        attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
+        self.assertEqual(attention.count('rum:'), 1)
+        self.assertIn('rum: 0 pass, 1 warn, 0 fail, 1 review', summary)
+        self.assertIn('Manual review: 1 wildcard allowlist', summary)
 
     def test_rum_terminal_explicitly_limits_browser_claim(self):
         self.manifest()
