@@ -23,11 +23,13 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
-    SITE=''
+    SITE=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE]\nDefault: interactive site selection followed by a full scan.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --quiet) TERMINAL_QUIET=1; shift;;
+            --no-banner) TERMINAL_NO_BANNER=1; shift;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -39,7 +41,6 @@ main() {
     load_sites && validate_manifest || return 3
     TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
     TERMINAL_WIDTH=$(terminal_width)
-    terminal_banner
     if [[ -z $SITE ]]; then
         printf '\n[ SELECT DATADOG SITE ]\n'; i=0
         for choice in "${SITE_CODES[@]}"; do
@@ -58,6 +59,7 @@ main() {
     MACHINE=$(hostname | clean); TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | clean)
     OS_NAME=${OS_NAME:-Linux}
+    terminal_banner
     report_init || { error 'Cannot initialize private reports'; return 3; }
     trap 'error "Scan interrupted; incomplete files retained in reports, no final readiness report"; exit 3' INT TERM HUP
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'

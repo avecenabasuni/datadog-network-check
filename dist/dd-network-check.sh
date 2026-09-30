@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=105b974122ede292ae09c034848aa0d63bfc0a9c8258f1eaf7d197bc8b764969
+# source_sha256=c3da416701da65697d28d52d7d003cb1a78a13b302019f327433bfb3bfb78ba0
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -629,13 +629,60 @@ terminal_truncate() {
     else printf '%s' "${value:0:limit}"; fi
 }
 terminal_banner() {
-    if terminal_narrow; then
-        printf 'DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
-    else
-        printf '%s\n' '+------------------------------------------------------------------------------+'
-        printf '| %-76s |\n' "DATADOG NETWORK PREFLIGHT  v$TOOL_VERSION"
-        printf '%s\n' '+------------------------------------------------------------------------------+'
+    local width context mark divider spaces gap version="v$TOOL_VERSION"
+    [[ ${TERMINAL_NO_BANNER-0} != 1 ]] || return 0
+    if [[ ${TERMINAL_TTY-0} != 1 ]]; then
+        printf 'DATADOG NETWORK PREFLIGHT  %s\n' "$version"
+        return
     fi
+    width=$(terminal_width)
+    if terminal_utf8; then
+        context="$MACHINE · $OS_NAME · ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
+    else
+        context="$MACHINE | $OS_NAME | ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
+    fi
+    if ((width<64)) || [[ ${TERMINAL_QUIET-0} == 1 ]]; then
+        mark='|'; divider='-'
+        if terminal_utf8; then mark='▌'; divider='─'; fi
+        gap=$((width-4-25-${#version}))
+        ((gap>=1)) || gap=1
+        if terminal_color_enabled; then terminal_purple; fi
+        printf ' %s DATADOG NETWORK PREFLIGHT%*s%s\n' "$mark" "$gap" '' "$version"
+        if terminal_color_enabled; then printf '\033[0m'; fi
+        printf -v spaces '%*s' "$((width-2))" ''
+        printf ' %s\n' "${spaces// /$divider}"
+        printf ' %s\n' "$(terminal_truncate "$context" "$((width-2))")"
+        return
+    fi
+    if terminal_color_enabled; then terminal_purple; fi
+    if terminal_utf8; then
+        printf '%s\n' \
+            '██████╗  █████╗ ████████╗ █████╗ ██████╗  ██████╗  ██████╗' \
+            '██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██╔═══██╗██╔════╝' \
+            '██║  ██║███████║   ██║   ███████║██║  ██║██║   ██║██║  ███╗' \
+            '██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║' \
+            '██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝' \
+            '╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝'
+        printf '  N E T W O R K   P R E F L I G H T          %s\n' "$version"
+        printf '%s\n' '  ────────────────────────────────────────────────────────────'
+    else
+        printf '%s\n' \
+            ' ____    _  _____  _    ____   ___   ____' \
+            '|  _ \  / \|_   _|/ \  |  _ \ / _ \ / ___|' \
+            '| | | |/ _ \ | | / _ \ | | | | | | | |  _' \
+            '| |_| / ___ \| |/ ___ \| |_| | |_| | |_| |' \
+            '|____/_/   \_\_/_/   \_\____/ \___/ \____|'
+        printf '  N E T W O R K   P R E F L I G H T    %s\n' "$version"
+        printf '%s\n' '  ------------------------------------------'
+    fi
+    if terminal_color_enabled; then printf '\033[0m'; fi
+    printf '  %s\n' "$(terminal_truncate "$context" "$((width-2))")"
+}
+terminal_purple() {
+    local color_term=${COLORTERM-}
+    color_term=${color_term,,}
+    [[ $color_term != truecolor && $color_term != 24bit ]] || { printf '\033[38;2;99;44;166m'; return; }
+    printf '\033[38;5;98m'
 }
 terminal_wrap() {
     local rest=$1 prefix=$2 continuation=$3 width limit chunk suffix
@@ -719,16 +766,13 @@ terminal_section() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    printf '\n[ SCAN CONTEXT ]\n'
-    printf '  %-7s : %s\n' Host "$MACHINE"
-    printf '  %-7s : %s\n' OS "$OS_NAME"
-    printf '  %-7s : %s (%s)\n' Site "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
-    printf '  %-7s : %s\n' Agent "${AGENT_VERSION:-not determined}"
-    printf '  %-7s : %s\n' Tools "${available:-none}"
-    [[ -z $unavailable ]] || printf '  %-7s : %s\n' Missing "$unavailable"
-    if ((PROXY_PRESENT)); then printf '  %-7s : %s\n' Proxy 'configured (values withheld)'
-    else printf '  %-7s : %s\n' Proxy 'not configured'; fi
-    printf '  %-7s : %s\n' Scan 'all documented destinations; detailed TXT/JSON reports follow'
+    local proxy='none' separator=' | '
+    terminal_utf8 && separator=' · '
+    ((PROXY_PRESENT)) && proxy='configured (values withheld)'
+    printf '\n'
+    terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
+    [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
+    printf '  Agent: %s\n' "${AGENT_VERSION:-not determined}"
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -1037,11 +1081,13 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
-    SITE=''
+    SITE=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE]\nDefault: interactive site selection followed by a full scan.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --quiet) TERMINAL_QUIET=1; shift;;
+            --no-banner) TERMINAL_NO_BANNER=1; shift;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -1053,7 +1099,6 @@ main() {
     load_sites && validate_manifest || return 3
     TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
     TERMINAL_WIDTH=$(terminal_width)
-    terminal_banner
     if [[ -z $SITE ]]; then
         printf '\n[ SELECT DATADOG SITE ]\n'; i=0
         for choice in "${SITE_CODES[@]}"; do
@@ -1072,6 +1117,7 @@ main() {
     MACHINE=$(hostname | clean); TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | clean)
     OS_NAME=${OS_NAME:-Linux}
+    terminal_banner
     report_init || { error 'Cannot initialize private reports'; return 3; }
     trap 'error "Scan interrupted; incomplete files retained in reports, no final readiness report"; exit 3' INT TERM HUP
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'

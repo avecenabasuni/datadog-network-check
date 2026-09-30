@@ -69,13 +69,60 @@ terminal_truncate() {
     else printf '%s' "${value:0:limit}"; fi
 }
 terminal_banner() {
-    if terminal_narrow; then
-        printf 'DATADOG NETWORK PREFLIGHT  v%s\n' "$TOOL_VERSION"
-    else
-        printf '%s\n' '+------------------------------------------------------------------------------+'
-        printf '| %-76s |\n' "DATADOG NETWORK PREFLIGHT  v$TOOL_VERSION"
-        printf '%s\n' '+------------------------------------------------------------------------------+'
+    local width context mark divider spaces gap version="v$TOOL_VERSION"
+    [[ ${TERMINAL_NO_BANNER-0} != 1 ]] || return 0
+    if [[ ${TERMINAL_TTY-0} != 1 ]]; then
+        printf 'DATADOG NETWORK PREFLIGHT  %s\n' "$version"
+        return
     fi
+    width=$(terminal_width)
+    if terminal_utf8; then
+        context="$MACHINE · $OS_NAME · ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
+    else
+        context="$MACHINE | $OS_NAME | ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
+    fi
+    if ((width<64)) || [[ ${TERMINAL_QUIET-0} == 1 ]]; then
+        mark='|'; divider='-'
+        if terminal_utf8; then mark='▌'; divider='─'; fi
+        gap=$((width-4-25-${#version}))
+        ((gap>=1)) || gap=1
+        if terminal_color_enabled; then terminal_purple; fi
+        printf ' %s DATADOG NETWORK PREFLIGHT%*s%s\n' "$mark" "$gap" '' "$version"
+        if terminal_color_enabled; then printf '\033[0m'; fi
+        printf -v spaces '%*s' "$((width-2))" ''
+        printf ' %s\n' "${spaces// /$divider}"
+        printf ' %s\n' "$(terminal_truncate "$context" "$((width-2))")"
+        return
+    fi
+    if terminal_color_enabled; then terminal_purple; fi
+    if terminal_utf8; then
+        printf '%s\n' \
+            '██████╗  █████╗ ████████╗ █████╗ ██████╗  ██████╗  ██████╗' \
+            '██╔══██╗██╔══██╗╚══██╔══╝██╔══██╗██╔══██╗██╔═══██╗██╔════╝' \
+            '██║  ██║███████║   ██║   ███████║██║  ██║██║   ██║██║  ███╗' \
+            '██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║' \
+            '██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝' \
+            '╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝'
+        printf '  N E T W O R K   P R E F L I G H T          %s\n' "$version"
+        printf '%s\n' '  ────────────────────────────────────────────────────────────'
+    else
+        printf '%s\n' \
+            ' ____    _  _____  _    ____   ___   ____' \
+            '|  _ \  / \|_   _|/ \  |  _ \ / _ \ / ___|' \
+            '| | | |/ _ \ | | / _ \ | | | | | | | |  _' \
+            '| |_| / ___ \| |/ ___ \| |_| | |_| | |_| |' \
+            '|____/_/   \_\_/_/   \_\____/ \___/ \____|'
+        printf '  N E T W O R K   P R E F L I G H T    %s\n' "$version"
+        printf '%s\n' '  ------------------------------------------'
+    fi
+    if terminal_color_enabled; then printf '\033[0m'; fi
+    printf '  %s\n' "$(terminal_truncate "$context" "$((width-2))")"
+}
+terminal_purple() {
+    local color_term=${COLORTERM-}
+    color_term=${color_term,,}
+    [[ $color_term != truecolor && $color_term != 24bit ]] || { printf '\033[38;2;99;44;166m'; return; }
+    printf '\033[38;5;98m'
 }
 terminal_wrap() {
     local rest=$1 prefix=$2 continuation=$3 width limit chunk suffix
@@ -159,16 +206,13 @@ terminal_section() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    printf '\n[ SCAN CONTEXT ]\n'
-    printf '  %-7s : %s\n' Host "$MACHINE"
-    printf '  %-7s : %s\n' OS "$OS_NAME"
-    printf '  %-7s : %s (%s)\n' Site "${SITE_LABELS[$SITE]}" "${SITE_DOMAINS[$SITE]}"
-    printf '  %-7s : %s\n' Agent "${AGENT_VERSION:-not determined}"
-    printf '  %-7s : %s\n' Tools "${available:-none}"
-    [[ -z $unavailable ]] || printf '  %-7s : %s\n' Missing "$unavailable"
-    if ((PROXY_PRESENT)); then printf '  %-7s : %s\n' Proxy 'configured (values withheld)'
-    else printf '  %-7s : %s\n' Proxy 'not configured'; fi
-    printf '  %-7s : %s\n' Scan 'all documented destinations; detailed TXT/JSON reports follow'
+    local proxy='none' separator=' | '
+    terminal_utf8 && separator=' · '
+    ((PROXY_PRESENT)) && proxy='configured (values withheld)'
+    printf '\n'
+    terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
+    [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
+    printf '  Agent: %s\n' "${AGENT_VERSION:-not determined}"
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac

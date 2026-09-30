@@ -74,6 +74,57 @@ class UnitTests(unittest.TestCase):
         for symbol in ('[OK]', '[!!]', '[??]', '[XX]'):
             self.assertIn(symbol, result.stdout)
 
+    def test_banner_variants_and_piped_title(self):
+        setup = (SOURCE + "declare -A SITE_LABELS=([us1]=US1) SITE_DOMAINS=([us1]=datadoghq.com); "
+                 "SITE=us1; MACHINE=eminerba-lab; OS_NAME='Ubuntu 22.04.5 LTS'; "
+                 "TERMINAL_TTY=1; ")
+
+        def tty_banner(locale, width, extra='', colorterm=None):
+            master, slave = pty.openpty()
+            env = os.environ.copy()
+            env.update({'LC_ALL': locale, 'TERM': 'xterm'})
+            env.pop('NO_COLOR', None)
+            env.pop('COLORTERM', None)
+            if colorterm:
+                env['COLORTERM'] = colorterm
+            try:
+                code = setup + f'TERMINAL_WIDTH={width}; {extra} terminal_banner'
+                result = subprocess.run(['bash', '-c', code], cwd=ROOT, env=env,
+                    stdout=slave, stderr=subprocess.PIPE, timeout=10)
+                os.close(slave)
+                slave = -1
+                try:
+                    output = os.read(master, 10000).decode('utf-8')
+                except OSError as exc:
+                    if exc.errno != 5:
+                        raise
+                    output = ''
+                self.assertEqual(result.returncode, 0, result.stderr.decode())
+                return output
+            finally:
+                if slave >= 0:
+                    os.close(slave)
+                os.close(master)
+
+        full = tty_banner('C.UTF-8', 80)
+        self.assertIn('██████╗  █████╗', full)
+        self.assertIn('\x1b[38;5;98m', full)
+        self.assertIn('\x1b[38;2;99;44;166m', tty_banner('C.UTF-8', 80, colorterm='truecolor'))
+        self.assertIn('eminerba-lab · Ubuntu 22.04.5 LTS · US1', full)
+        ascii_banner = tty_banner('C', 80)
+        self.assertIn(' ____    _  _____', ascii_banner)
+        self.assertNotIn('█', ascii_banner)
+        self.assertIn('eminerba-lab | Ubuntu 22.04.5 LTS | US1', ascii_banner)
+        compact = tty_banner('C.UTF-8', 50)
+        self.assertIn('▌ DATADOG NETWORK PREFLIGHT', compact)
+        self.assertNotIn('██████╗', compact)
+        self.assertNotIn('██████╗', tty_banner('C.UTF-8', 80, 'TERMINAL_QUIET=1;'))
+        self.assertEqual(tty_banner('C.UTF-8', 80, 'TERMINAL_NO_BANNER=1;'), '')
+        piped = bash(setup + 'TERMINAL_TTY=0; terminal_banner')
+        self.assertEqual(piped.returncode, 0, piped.stderr)
+        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.3\n')
+        self.assertNotIn('\x1b', piped.stdout)
+
     def test_compact_warning_explains_skipped_optional_tls_probe(self):
         output = self.run_code("LAST_TERMINAL_CATEGORY=agent; category=agent; E[hostname]=example.com; "
             "E[classification]='DIRECT TEST'; E[impact]=WARN; E[dns]=PASS; E[tcp]=PASS; "
