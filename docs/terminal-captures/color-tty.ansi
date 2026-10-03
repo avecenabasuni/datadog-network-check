@@ -16,45 +16,41 @@
   STATUS DESTINATION                                      DNS  TCP  TLS HTTP
 [2K
  [1mINSTALLATION[0m [2m─────────────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 0/15 install.datadoghq.com[0m[2K  [32mPASS  [0m install.datadoghq.com                           [2m  ok   ok   ok 200[0m
-[2K[2m/ Checking 1/15 apt.datadoghq.com[0m[2K  [32mPASS  [0m apt.datadoghq.com                               [2m  ok   ok   ok 206[0m
+[2K[2m| Checking 0/13 install.datadoghq.com[0m[2K  [32mPASS  [0m install.datadoghq.com                           [2m  ok   ok   ok 200[0m
+[2K[2m/ Checking 1/13 apt.datadoghq.com[0m[2K  [32mPASS  [0m apt.datadoghq.com                               [2m  ok   ok   ok 206[0m
 [2K
  [1mAGENT[0m [2m────────────────────────────────────────────────────────────────────────[0m
-[2K[2m- Checking 2/15 *.agent.datadoghq.com[0m[2K  [36mREVIEW[0m *.agent.datadoghq.com                           [2m  --   --   -- --[0m
-[2m       ↳ Allowlist pattern, not a host; review firewall rule.[0m
-[2K[2m\ Checking 3/15 7-84-1-app.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-app.agent.datadoghq.com                  [2m  ok   ok   ok 403[0m
-[2K[2m| Checking 4/15 7-84-1-flare.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-flare.agent.datadoghq.com                [2m  ok   ok   ok 403[0m
+[2K[2m- Checking 2/13 7-84-1-app.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-app.agent.datadoghq.com                  [2m  ok   ok   ok 403[0m
+[2K[2m\ Checking 3/13 7-84-1-flare.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-flare.agent.datadoghq.com                [2m  ok   ok   ok 403[0m
 [2K
  [1mRUM (VM-side only)[0m [2m───────────────────────────────────────────────────────────[0m
-[2K[2m/ Checking 5/15 browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
-[2K[2m- Checking 6/15 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [33mWARN  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
+[2K[2m| Checking 4/13 browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
+[2K[2m/ Checking 5/13 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [33mWARN  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
 [2m       ↳ Reachable, but response contains denial/filter wording; see TXT report.[0m
-[2K[2m\ Checking 7/15 *.browser-intake-datadoghq.com[0m[2K  [36mREVIEW[0m *.browser-intake-datadoghq.com                  [2m  --   --   -- --[0m
-[2m       ↳ Allowlist pattern, not a host; review firewall rule.[0m
 [2K
  [1mCONTAINER REGISTRIES[0m [2m─────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 8/15 registry.datadoghq.com[0m[2K  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
-[2K[2m/ Checking 9/15 gcr.io[0m[2K  [32mPASS  [0m gcr.io                                          [2m  ok   ok   ok 302>200[0m
-[2K[2m- Checking 10/15 eu.gcr.io[0m[2K  [32mPASS  [0m eu.gcr.io                                       [2m  ok   ok   ok 302>200[0m
-[2K[2m\ Checking 11/15 asia.gcr.io[0m[2K  [32mPASS  [0m asia.gcr.io                                     [2m  ok   ok   ok 302>200[0m
-[2K[2m| Checking 12/15 us-docker.pkg.dev[0m[2K  [33mWARN  [0m us-docker.pkg.dev                               [2m  ok   ok   ok 302>200[0m
+[2K[2m- Checking 6/13 registry.datadoghq.com[0m[2K  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
+[2K[2m\ Checking 7/13 gcr.io[0m[2K  [32mPASS  [0m gcr.io                                          [2m  ok   ok   ok 302>200[0m
+[2K[2m| Checking 8/13 eu.gcr.io[0m[2K  [32mPASS  [0m eu.gcr.io                                       [2m  ok   ok   ok 302>200[0m
+[2K[2m/ Checking 9/13 asia.gcr.io[0m[2K  [32mPASS  [0m asia.gcr.io                                     [2m  ok   ok   ok 302>200[0m
+[2K[2m- Checking 10/13 us-docker.pkg.dev[0m[2K  [33mWARN  [0m us-docker.pkg.dev                               [2m  ok   ok   ok 302>200[0m
 [2m       ↳ Unexpected redirect target; possible proxy/captive portal block page.[0m
-[2K[2m/ Checking 13/15 public.ecr.aws[0m[2K  [32mPASS  [0m public.ecr.aws                                  [2m  ok   ok   ok 401[0m
+[2K[2m\ Checking 11/13 public.ecr.aws[0m[2K  [32mPASS  [0m public.ecr.aws                                  [2m  ok   ok   ok 401[0m
 [2K[2m       ↳ Allow docs.datadoghq.com, accounts.google.com.[0m
 
  [1mOTHER REQUIREMENTS[0m [2m───────────────────────────────────────────────────────────[0m
-[2K[2m- Checking 14/15 destination-unspecified[0m[2K  [36mREVIEW[0m destination-unspecified                         [2m  --   --   -- --[0m
+[2K[2m| Checking 12/13 destination-unspecified[0m[2K  [36mREVIEW[0m destination-unspecified                         [2m  --   --   -- --[0m
 [2m       ↳ Manual target; not tested.[0m
 
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  [33m⚠  READY WITH WARNINGS[0m                                                      │
 │                                                                              │
-│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 3 review                             │
+│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 1 review                             │
 │                                                                              │
 │  By category                                                                 │
 │    installation: 2 pass, 0 warn, 0 fail, 0 review                            │
-│    agent: 2 pass, 0 warn, 0 fail, 1 review                                   │
-│    rum: 1 pass, 1 warn, 0 fail, 1 review                                     │
+│    agent: 2 pass, 0 warn, 0 fail, 0 review                                   │
+│    rum: 1 pass, 1 warn, 0 fail, 0 review                                     │
 │    container registries: 5 pass, 1 warn, 0 fail, 0 review                    │
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
@@ -62,7 +58,7 @@
 │  [33m  ⚠ rum: 1 denial/filter response(s); see TXT report[0m                        │
 │  [33m  ⚠ container registries: 1 unexpected redirect(s); inspect proxy[0m           │
 │                                                                              │
-│  Manual review: 2 wildcard allowlist; 1 other requirement(s)                 │
+│  Manual review: 1 other requirement(s)                                       │
 │    - UDP telemetry (UDP/8125)                                                │
 │  RUM: VM-side sanity only; end-user browser connectivity untested            │
 ╰──────────────────────────────────────────────────────────────────────────────╯

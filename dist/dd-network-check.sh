@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=17c31c662b6da06fc42f41dabfe191a40bfbead2551f307fb07e595368ac7dce
+# source_sha256=1faa740f765dd5f3193b1d087e9c92ea1511c8a326a9d81b3a6b88b2c7128ce3
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -156,7 +156,7 @@ apt|installation|apt distribution|apt.datadoghq.com|443|https|linux|full|require
 yum|installation|yum distribution|yum.datadoghq.com|443|https|linux|full|required|all|/|Domain reachability only; no packages or scripts downloaded|https://docs.datadoghq.com/agent/configuration/network/
 keys|installation|keys distribution|keys.datadoghq.com|443|https|linux|full|required|all|/|Domain reachability only; no packages or scripts downloaded|https://docs.datadoghq.com/agent/configuration/network/
 windows-agent|installation|windows-agent distribution|windows-agent.datadoghq.com|443|https|windows|full|required|all|/|Domain reachability only; no packages or scripts downloaded|https://docs.datadoghq.com/agent/configuration/network/
-agent-wildcard|agent|Agent metrics and flare allowlist|*.agent.{site}|443|https|all|wildcard|required|all|/|ALLOWLIST REQUIREMENT; never resolve a literal wildcard|https://docs.datadoghq.com/agent/configuration/network/
+agent-wildcard|agent|Agent metrics and flare allowlist|*.agent.{site}|443|https|all|wildcard|required|all|/|Documented firewall inclusion pattern; configuration guidance only; not an endpoint test|https://docs.datadoghq.com/agent/configuration/network/
 agent-metrics|agent|Version-specific metrics intake|{version}-app.agent.{site}|443|https|all|version|required|all|/|Official Agent version naming convention; latest stable release by default or explicit version override|https://docs.datadoghq.com/agent/configuration/network/
 agent-flare|agent|Version-specific flare destination|{version}-flare.agent.{site}|443|https|all|version|informational|all|/|Destination connectivity only; no flare created or uploaded|https://docs.datadoghq.com/agent/configuration/network/
 api|api|Agent API|api.{site}|443|https|all|full|required|all|/|-|https://docs.datadoghq.com/agent/configuration/network/
@@ -186,7 +186,7 @@ intake-synthetics|synthetics|Private Synthetic worker intake.synthetics|intake.s
 intake-v2-synthetics|synthetics|Private Synthetic worker intake-v2.synthetics|intake-v2.synthetics.{site}|443|https|all|full|informational|all|/|Conditional: only when this VM hosts a private worker; intake-v2 is a legacy worker destination|https://docs.datadoghq.com/agent/configuration/network/
 rum|rum|Browser RUM intake|{rum}|443|https|all|server_sanity_only|informational|all|/|SERVER-SIDE SANITY CHECK ONLY; does not validate end-user browser connectivity|https://docs.datadoghq.com/real_user_monitoring/
 rum-rc|rum|RUM Remote Configuration|sdk-configuration.{rum}|443|https|all|server_sanity_only|informational|us1,us3,us5,eu1,ap1,ap2,uk1|/|Documented sdk-configuration subdomain; unsupported on government sites; server sanity only|https://docs.datadoghq.com/real_user_monitoring/remote_configuration/
-rum-wildcard|rum|RUM SDK subdomain allowlist|*.{rum}|443|https|all|wildcard|informational|us1,us3,us5,eu1,ap1,ap2,uk1|/|ALLOWLIST REQUIREMENT; normalized using explicit RUM mapping; apex intake must also be allowed|https://docs.datadoghq.com/real_user_monitoring/remote_configuration/
+rum-wildcard|rum|RUM SDK subdomain allowlist|*.{rum}|443|https|all|wildcard|informational|us1,us3,us5,eu1,ap1,ap2,uk1|/|Documented firewall inclusion pattern; configuration guidance only; normalized using explicit RUM mapping; apex intake must also be allowed|https://docs.datadoghq.com/real_user_monitoring/remote_configuration/
 rum-quota|rum|Browser Profiling quota|quota.{rum}|443|https|all|server_sanity_only|informational|all|/|SERVER-SIDE SANITY CHECK ONLY; conditional on Browser Profiling|https://docs.datadoghq.com/real_user_monitoring/
 browser-logs|rum|Browser SDK logs|logs.{rum}|443|https|all|server_sanity_only|informational|all|/|SERVER-SIDE SANITY CHECK ONLY|https://docs.datadoghq.com/logs/log_collection/#logging-endpoints
 public-ip-38|network_path_optional|Optional source public IP discovery|icanhazip.com|443|https|all|full|informational|all|/|Third-party endpoint documented for Network Path Agent 7.75+; optional feature|https://docs.datadoghq.com/agent/configuration/network/
@@ -833,7 +833,7 @@ terminal_destination_count() {
     local line total=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"
-        if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
+        if [[ $os == windows || $os == desktop || $test_type == excluded || $test_type == wildcard || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             continue
         fi
         ((total+=1))
@@ -933,9 +933,8 @@ terminal_endpoint() {
     local state hint field detail http_display dns_display tcp_display tls_display
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
-    if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Allowlist pattern, not a host; review firewall rule.'
-        elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
+    if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
+        if [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
         else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
         terminal_note "$hint"
@@ -996,7 +995,7 @@ terminal_capture_endpoint() {
         TERMINAL_SNAP["$index:$field"]=${E[$field]-}
     done
     state=${E[impact]}
-    [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' && ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
+    [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
     key="$category:$state"
     # Associative keys need variable expansion here.
     # shellcheck disable=SC2004
@@ -1092,7 +1091,7 @@ terminal_summary() {
     local verdict=$OVERALL width
     width=$(terminal_width)
     [[ $verdict != BLOCKED ]] || verdict='NOT READY'
-    review_count=$((${#ALLOWLIST[@]}+${#UNTESTED[@]}))
+    review_count=${#UNTESTED[@]}
     printf '\n'
     terminal_box_border top
     terminal_box_wrap "$(terminal_symbol "$OVERALL")  $verdict" "$OVERALL"
@@ -1130,8 +1129,10 @@ terminal_summary() {
         terminal_box_line 'Blockers'
         for line in "${BLOCKERS[@]}"; do terminal_box_wrap "  - $line" FAIL '    '; done
     fi
-    terminal_box_line ''
-    terminal_box_wrap "Manual review: ${#ALLOWLIST[@]} wildcard allowlist; ${#UNTESTED[@]} other requirement(s)" '' '  '
+    if ((${#UNTESTED[@]})); then
+        terminal_box_line ''
+        terminal_box_wrap "Manual review: ${#UNTESTED[@]} other requirement(s)" '' '  '
+    fi
     for line in "${TERMINAL_OTHER_REQUIREMENTS[@]}"; do
         terminal_box_wrap "  - $line" '' '    '
     done
@@ -1251,7 +1252,6 @@ report_endpoint() {
         WARN) [[ ${CATEGORY_STATUS[$category]} == FAIL ]] || CATEGORY_STATUS[$category]=WARN
               [[ $OVERALL == BLOCKED ]] || OVERALL='READY WITH WARNINGS';;
     esac
-    [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' ]] || ALLOWLIST+=("${E[hostname]}")
     [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || UNTESTED+=("${E[hostname]}: ${E[notes]}")
     if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' && $category == other_requirements ]]; then
         if [[ -n ${E[label]} && ${E[label]} != '-' ]]; then
@@ -1266,14 +1266,14 @@ report_finish() {
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
     emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
-    emit 'Wildcard and manual requirements are listed below; they are not counted as passed checks.'
+    emit 'Manual requirements are listed below; they are not counted as passed checks.'
     emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
         emit 'Detected blockers:'
         for line in "${BLOCKERS[@]}"; do ((index+=1)); emit "$index. $line"; done
         emit 'Suggested owner: Customer Network / DNS / Security Team'
     fi
-    emit 'Wildcard allowlist requirements (NOT DIRECTLY TESTABLE):'
+    emit 'Documented firewall allowlist patterns (configuration guidance; excluded from test results and readiness):'
     for line in "${ALLOWLIST[@]}"; do emit "  $line"; done
     emit 'Other untested requirements:'
     for line in "${UNTESTED[@]}"; do emit "  $line"; done
@@ -1395,21 +1395,26 @@ main() {
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}
+        if [[ $test_type == wildcard ]]; then
+            # Docs list these as firewall configuration patterns, not network
+            # destinations. Keep their guidance outside endpoint test results.
+            if [[ $os != windows && $os != desktop && ( $sites == all || ,$sites, == *",$SITE,"* ) ]]; then
+                ALLOWLIST+=("$host")
+            fi
+            continue
+        fi
         E[id]=$id; E[category]=$category; E[label]=$label; E[hostname]=$host; E[port]=$port
         E[protocol]=$protocol; E[applicable_os]=$os; E[test_type]=$test_type; E[requirement]=$requirement; E[source]=$source; E[notes]=$notes
         if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             E[classification]='NOT APPLICABLE'
             for field in dns cname tcp tls http; do E[$field]='NOT APPLICABLE'; E[${field}_detail]='Outside Linux/site/server scope'; done
             add_note 'NOT APPLICABLE TO SERVER-SIDE PREFLIGHT for this Linux/site selection'
-        elif [[ $test_type == wildcard || $test_type == manual || ( $test_type == version && -z $AGENT_VERSION ) ]]; then
+        elif [[ $test_type == manual || ( $test_type == version && -z $AGENT_VERSION ) ]]; then
             terminal_category_start
             TERMINAL_PROGRESS_HOST=$host; terminal_progress
             E[classification]='NOT DIRECTLY TESTABLE'
-            [[ $test_type != wildcard ]] || E[classification]='ALLOWLIST REQUIREMENT'
             for field in dns cname tcp tls http; do E[$field]='NOT DIRECTLY TESTABLE'; E[${field}_detail]='Manual review required; no network probe issued'; done
-            if [[ $test_type == wildcard ]]; then
-                add_note 'Allowlist pattern, not a connection target; concrete hostnames are probed separately; review firewall wildcard coverage'
-            elif [[ $test_type == version ]]; then
+            if [[ $test_type == version ]]; then
                 add_note "$AGENT_VERSION_DETAIL"
             fi
         else

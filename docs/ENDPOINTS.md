@@ -2,6 +2,8 @@
 
 Last verified against Datadog docs: **2026-09-29**.
 
+Targeted Agent/RUM wildcard review: **2026-10-03**, using Context7 and the official sources. Network Traffic describes concrete versioned app/flare destinations and a wildcard firewall inclusion instruction. RUM Remote Configuration describes wildcard allowlisting covering intake and `sdk-configuration` requests. The checker treats those instructions as documentation notes rather than endpoint tests.
+
 ## Sources and precedence
 
 - [Agent Network Traffic](https://docs.datadoghq.com/agent/configuration/network/): primary destination inventory, installation domains, Agent version convention, site-gated DBM/EUDM, outbound ports, optional public-IP services and Operator registries.
@@ -20,8 +22,8 @@ Network Traffic uses JavaScript-populated site placeholders. A blank hostname su
 |---|---|
 | Linux installation domains | Required HTTPS tests of domain roots; no installers fetched |
 | windows-agent.datadoghq.com | NOT APPLICABLE on Linux |
-| Metrics / metadata / flare version domains | Exact stable installed Agent version only; otherwise NOT DIRECTLY TESTABLE |
-| `*.agent.<site>` | Separate ALLOWLIST REQUIREMENT, never probed |
+| Metrics / metadata / flare version domains | Latest stable Agent release by default, or explicit flag/environment override; concrete app/flare probes; REVIEW only if the version cannot be determined |
+| `*.agent.<site>` | TXT/JSON documentation guidance; never probed or counted as an endpoint, REVIEW, or warning |
 | API, trace, logs, process, orchestration, container images/lifecycle, profiling, telemetry, RC, LLM, SBOM, NDM/SNMP/flows/Network Path | Required server HTTPS tests; process destination also covers USM/cloud network monitoring |
 | Software inventory and end-user-device intake | Included as conditional informational tests. The network page groups these under End User Device Monitoring; platform/feature applicability is not established by domain reachability |
 | DBM and software/device inventory on government sites | NOT APPLICABLE to this documented scan: Network Traffic restricts these entries to commercial sites. This is not an assertion that the product never exists there; region config separately contains DBM hostnames. Resolve this documentation discrepancy with Datadog before extending government scope |
@@ -30,7 +32,7 @@ Network Traffic uses JavaScript-populated site placeholders. A blank hostname su
 | IP ranges | Fetch root endpoint; no firewall changes or automatic CIDR expansion |
 | Browser RUM, Browser Logs, quota | Informational SERVER-SIDE SANITY CHECK ONLY |
 | RUM sdk-configuration | Official subdomain combined with explicit RUM origin mapping; informational on commercial sites, explicitly unsupported on government sites |
-| RUM wildcard | Normalize generic regional wording with explicit site mapping; separately allow the apex intake because a subdomain wildcard does not necessarily cover it |
+| RUM wildcard | TXT/JSON documentation guidance, excluded from test results and readiness; normalize regional wording with the explicit site mapping; the apex intake has its own concrete probe |
 | Network Path third-party IP-discovery services | Informational optional feature, Agent 7.75+; a failure does not block core readiness |
 | Container registries | Informational alternatives depending on selected registry. No image pulls/authentication tested; registry redirects may require additional hosts |
 | UDP NTP/123 | Manual requirement; v0.1 has no UDP/NTP probe and does not inspect customer Agent configuration |
@@ -59,7 +61,7 @@ id|category|label|hostname_template|port|protocol|applicable_os|test_type|requir
 - `hostname_template`: literal documented hostname, or `{site}`, `{rum}`, `{version}` substitutions. Only `wildcard` records can start with `*.`. Manual/excluded entries may use descriptive placeholders and are never queried.
 - `port`: 1–65535. Active v0.1 probes use HTTPS; manual records also represent TCP/UDP.
 - `applicable_os`: `all`, `linux`, `windows`, or `desktop` (reserved for explicitly desktop-only records).
-- `test_type`: `full`, `server_sanity_only`, `wildcard`, `version`, `manual`, `excluded`.
+- `test_type`: `full`, `server_sanity_only`, `wildcard`, `version`, `manual`, `excluded`. Applicable `wildcard` records supply documentation guidance in TXT and JSON `allowlist_requirements`; they do not create endpoint records or change readiness.
 - `requirement`: `required` blocks when failed; `informational` caps impact at WARN.
 - `sites`: `all` or comma-separated site codes. A site exclusion is visible in the report.
 - `path`: conservative absolute URL path without credentials/query strings. Default `/`.

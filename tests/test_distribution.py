@@ -91,7 +91,7 @@ fi
         self.assertEqual(len(reports), 1)
         report = json.loads(reports[0].read_text())
         expected_ids = [line.split('|')[0] for line in (ROOT / 'config/endpoints.conf').read_text().splitlines()
-                        if line and not line.startswith('#')]
+                        if line and not line.startswith('#') and line.split('|')[7] != 'wildcard']
         self.assertEqual([e['id'] for e in report['endpoints']], expected_ids)
         self.assertEqual(report['site']['code'], 'us1')
         self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
@@ -99,6 +99,10 @@ fi
         self.assertEqual(len(list((self.invocation / 'reports').iterdir())), 2)
         self.assertTrue(reports[0].with_suffix('.txt').exists())
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
+        self.assertNotIn('*.agent', result.stdout)
+        self.assertNotIn('*.browser-intake', result.stdout)
+        self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com', '*.browser-intake-datadoghq.com'])
+        self.assertTrue(all(endpoint['test_type'] != 'wildcard' for endpoint in report['endpoints']))
 
     def test_standalone_help_and_invalid_site_need_no_files(self):
         self.env['BUNDLE_PATH'] = str(ROOT / 'dist/dd-network-check.sh')

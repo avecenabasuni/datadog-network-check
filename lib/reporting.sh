@@ -211,7 +211,7 @@ terminal_destination_count() {
     local line total=0
     for line in "${RECORDS[@]}"; do
         parse_record "$line"
-        if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
+        if [[ $os == windows || $os == desktop || $test_type == excluded || $test_type == wildcard || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             continue
         fi
         ((total+=1))
@@ -311,9 +311,8 @@ terminal_endpoint() {
     local state hint field detail http_display dns_display tcp_display tls_display
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
-    if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Allowlist pattern, not a host; review firewall rule.'
-        elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
+    if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
+        if [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
         else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
         terminal_note "$hint"
@@ -374,7 +373,7 @@ terminal_capture_endpoint() {
         TERMINAL_SNAP["$index:$field"]=${E[$field]-}
     done
     state=${E[impact]}
-    [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' && ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
+    [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || state=REVIEW
     key="$category:$state"
     # Associative keys need variable expansion here.
     # shellcheck disable=SC2004
@@ -470,7 +469,7 @@ terminal_summary() {
     local verdict=$OVERALL width
     width=$(terminal_width)
     [[ $verdict != BLOCKED ]] || verdict='NOT READY'
-    review_count=$((${#ALLOWLIST[@]}+${#UNTESTED[@]}))
+    review_count=${#UNTESTED[@]}
     printf '\n'
     terminal_box_border top
     terminal_box_wrap "$(terminal_symbol "$OVERALL")  $verdict" "$OVERALL"
@@ -508,8 +507,10 @@ terminal_summary() {
         terminal_box_line 'Blockers'
         for line in "${BLOCKERS[@]}"; do terminal_box_wrap "  - $line" FAIL '    '; done
     fi
-    terminal_box_line ''
-    terminal_box_wrap "Manual review: ${#ALLOWLIST[@]} wildcard allowlist; ${#UNTESTED[@]} other requirement(s)" '' '  '
+    if ((${#UNTESTED[@]})); then
+        terminal_box_line ''
+        terminal_box_wrap "Manual review: ${#UNTESTED[@]} other requirement(s)" '' '  '
+    fi
     for line in "${TERMINAL_OTHER_REQUIREMENTS[@]}"; do
         terminal_box_wrap "  - $line" '' '    '
     done
@@ -629,7 +630,6 @@ report_endpoint() {
         WARN) [[ ${CATEGORY_STATUS[$category]} == FAIL ]] || CATEGORY_STATUS[$category]=WARN
               [[ $OVERALL == BLOCKED ]] || OVERALL='READY WITH WARNINGS';;
     esac
-    [[ ${E[classification]} != 'ALLOWLIST REQUIREMENT' ]] || ALLOWLIST+=("${E[hostname]}")
     [[ ${E[classification]} != 'NOT DIRECTLY TESTABLE' ]] || UNTESTED+=("${E[hostname]}: ${E[notes]}")
     if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' && $category == other_requirements ]]; then
         if [[ -n ${E[label]} && ${E[label]} != '-' ]]; then
@@ -644,14 +644,14 @@ report_finish() {
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
     emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
-    emit 'Wildcard and manual requirements are listed below; they are not counted as passed checks.'
+    emit 'Manual requirements are listed below; they are not counted as passed checks.'
     emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
         emit 'Detected blockers:'
         for line in "${BLOCKERS[@]}"; do ((index+=1)); emit "$index. $line"; done
         emit 'Suggested owner: Customer Network / DNS / Security Team'
     fi
-    emit 'Wildcard allowlist requirements (NOT DIRECTLY TESTABLE):'
+    emit 'Documented firewall allowlist patterns (configuration guidance; excluded from test results and readiness):'
     for line in "${ALLOWLIST[@]}"; do emit "  $line"; done
     emit 'Other untested requirements:'
     for line in "${UNTESTED[@]}"; do emit "  $line"; done

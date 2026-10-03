@@ -99,21 +99,26 @@ main() {
     for line in "${RECORDS[@]}"; do
         parse_record "$line"; reset_result
         host=${template//\{site\}/${SITE_DOMAINS[$SITE]}}; host=${host//\{rum\}/${SITE_RUM[$SITE]}}
+        if [[ $test_type == wildcard ]]; then
+            # Docs list these as firewall configuration patterns, not network
+            # destinations. Keep their guidance outside endpoint test results.
+            if [[ $os != windows && $os != desktop && ( $sites == all || ,$sites, == *",$SITE,"* ) ]]; then
+                ALLOWLIST+=("$host")
+            fi
+            continue
+        fi
         E[id]=$id; E[category]=$category; E[label]=$label; E[hostname]=$host; E[port]=$port
         E[protocol]=$protocol; E[applicable_os]=$os; E[test_type]=$test_type; E[requirement]=$requirement; E[source]=$source; E[notes]=$notes
         if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             E[classification]='NOT APPLICABLE'
             for field in dns cname tcp tls http; do E[$field]='NOT APPLICABLE'; E[${field}_detail]='Outside Linux/site/server scope'; done
             add_note 'NOT APPLICABLE TO SERVER-SIDE PREFLIGHT for this Linux/site selection'
-        elif [[ $test_type == wildcard || $test_type == manual || ( $test_type == version && -z $AGENT_VERSION ) ]]; then
+        elif [[ $test_type == manual || ( $test_type == version && -z $AGENT_VERSION ) ]]; then
             terminal_category_start
             TERMINAL_PROGRESS_HOST=$host; terminal_progress
             E[classification]='NOT DIRECTLY TESTABLE'
-            [[ $test_type != wildcard ]] || E[classification]='ALLOWLIST REQUIREMENT'
             for field in dns cname tcp tls http; do E[$field]='NOT DIRECTLY TESTABLE'; E[${field}_detail]='Manual review required; no network probe issued'; done
-            if [[ $test_type == wildcard ]]; then
-                add_note 'Allowlist pattern, not a connection target; concrete hostnames are probed separately; review firewall wildcard coverage'
-            elif [[ $test_type == version ]]; then
+            if [[ $test_type == version ]]; then
                 add_note "$AGENT_VERSION_DETAIL"
             fi
         else

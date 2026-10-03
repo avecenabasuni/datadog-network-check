@@ -100,7 +100,7 @@ All limits are at the top of `dd-network-check.sh`. Requests are sequential; suc
 
 ## Terminal display and detailed reports
 
-The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Each category heading and endpoint row streams during the scan; a TTY with color enabled shows a single temporary progress footer. Endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint and show the full name under a shortened hostname. `WARN` and `FAIL` reasons use up to two indented lines, while expected registry redirects share one allowlist note. Wildcard and manual entries say `REVIEW` and are marked not tested. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
+The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Each category heading and endpoint row streams during the scan; a TTY with color enabled shows a single temporary progress footer. Endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint and show the full name under a shortened hostname. `WARN` and `FAIL` reasons use up to two indented lines, while expected registry redirects share one allowlist note. Manual targets and unresolved versioned destinations say `REVIEW` and are marked not tested. Wildcard firewall guidance stays in TXT/JSON documentation notes, outside terminal test rows and counts. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
 
 The boxed summary gives the readiness verdict, direct-check counts, per-category counts, categories needing attention, manual-review counts, and the RUM limitation. Report paths show the directory once and one complete filename per line. RUM checks are VM-side sanity checks; end-user browser connectivity remains untested. Terminal color appears only on a TTY, and `NO_COLOR=1` or `TERM=dumb` disables it. Piped output and report files contain no ANSI codes. [Six offline captures](docs/terminal-captures/) show color TTY, `NO_COLOR=1`, `LC_ALL=C`, `COLUMNS=50`, piped output, and Ctrl-C; regenerate them with `python3 -B tests/capture_terminal.py`.
 
@@ -116,12 +116,12 @@ The boxed summary gives the readiness verdict, direct-check counts, per-category
 
 +- SUMMARY --------------------------------------------------------------------+
 |  [!!]  READY WITH WARNINGS                                                   |
-|  [OK] 8 pass    [!!] 2 warn    [XX] 0 fail    [??] 5 review                  |
+|  [OK] 10 pass   [!!] 2 warn    [XX] 0 fail    [??] 1 review                  |
 |  By category                                                                 |
 |    container registries: 5 pass, 1 warn, 0 fail, 0 review                    |
 |  Needs attention                                                             |
 |    [!!] container registries: 1 unexpected redirect(s); inspect proxy       |
-|  Manual review: 2 wildcard allowlist; 3 other requirement(s)                |
+|  Manual review: 1 other requirement(s)                                      |
 |  RUM: VM-side sanity only; end-user browser connectivity untested            |
 +------------------------------------------------------------------------------+
 
@@ -134,7 +134,7 @@ This is an illustrative excerpt, not evidence about your VM. The TXT report keep
 
 ## Interpreting results
 
-Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY TESTABLE. `ALLOWLIST REQUIREMENT` is a classification, not a passed test.
+Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY TESTABLE. Documented wildcard firewall patterns are configuration guidance, outside endpoint test results.
 
 | Evidence | Interpretation |
 |---|---|
@@ -153,7 +153,8 @@ Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY T
 | Vendor plus explicit denial/filter wording | WARN: POSSIBLE SECURITY FILTERING; not definitive proof |
 | Generic “access denied”/“blocked” wording | WARN; may be an ordinary application rejection |
 | Optional detailed test unavailable | SKIPPED; coverage warning |
-| Wildcard/version/port requirement without concrete target | NOT DIRECTLY TESTABLE; coverage warning |
+| Version/port requirement without concrete target | NOT DIRECTLY TESTABLE; coverage warning |
+| Documented wildcard firewall pattern | TXT/JSON documentation note; no test result or readiness impact |
 | Windows-only, excluded traffic, or site excluded by manifest | NOT APPLICABLE; neutral in aggregation |
 
 A body-size cap is a deliberate exception: if TLS was verified and HTTP headers arrived, curl exit 63 does not make network readiness warn or fail. Curl metadata is captured separately from the bounded response sample, so large bodies cannot discard the HTTP status or actual exit code. On older curl versions, closing the sample pipe can produce exit 23; it is accepted only when the independent response-sample byte count confirms the limit was reached. The cap remains visible in the HTTP detail and notes. Other write errors and transport failures remain failures even if an earlier response arrived. Missing diagnostic metadata is reported as SKIPPED, never as a fabricated curl exit code or a proven network blocker. HTTP reachability cannot conclusively identify a transparent intermediary that presents a trusted certificate; block-page detection is only a conservative heuristic.
@@ -163,7 +164,7 @@ An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unve
 - Required server endpoints: any stage failure produces FAIL impact after the bounded retries above. A redirect follow-up is a separate diagnostic; its failure contributes WARN when the original endpoint was reachable. If that destination is itself a required manifest endpoint, its own failed check still blocks readiness.
 - Informational endpoints: failures remain visible, but impact is WARN. These include browser sanity checks, optional public-IP lookups, alternative registries, legacy API/flare and private-worker destinations, and conditional software/device inventory.
 - If a proxy environment is configured and curl establishes verified HTTPS, direct-path failures produce WARN impact. They remain FAIL in the individual stages. This is route evidence, not confirmation that the Agent uses the same proxy. The script does not infer exact proxy selection from environment presence.
-- Unverified wildcard/manual requirements and skipped diagnostics produce WARN impact. They can never become PASS merely because a related hostname resolves.
+- Manual requirements and skipped diagnostics produce WARN impact. They can never become PASS merely because a related hostname resolves. Documented wildcard patterns do not affect the readiness verdict or exit code.
 - Category status is its worst endpoint impact. Excluded-only categories are PASS (no applicable blockers); their endpoint rows remain NOT APPLICABLE.
 
 | Overall | Exit code | Rule |
@@ -173,13 +174,13 @@ An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unve
 | BLOCKED | 2 | At least one required endpoint has FAIL impact |
 | Script/configuration/internal error | 3 | Invalid input, missing required tools, unsupported OS, report failure or interrupted scan |
 
-**The shipped full manifest normally cannot reach READY**, because wildcard coverage and non-HTTPS/manual requirements cannot be proven automatically. READY WITH WARNINGS is intentionally not an unconditional all-clear. BLOCKED refers to the declared full POC scope: it does not imply every product is unusable. Some listed server features may be unnecessary for a particular POC; review blockers against the agreed scope.
+**The shipped full manifest normally cannot reach READY**, because non-HTTPS/manual requirements cannot be proven automatically. READY WITH WARNINGS is intentionally not an unconditional all-clear. BLOCKED refers to the declared full POC scope: it does not imply every product is unusable. Some listed server features may be unnecessary for a particular POC; review blockers against the agreed scope.
 
 ## RUM and wildcards
 
 RUM intake, quota, Browser Logs, and applicable `sdk-configuration` endpoints are **SERVER-SIDE SANITY CHECK ONLY**. A VM PASS does not validate an end-user's DNS, firewall, FortiGate, Zscaler, browser security product, CSP, SDK configuration, or corporate proxy. RUM failure alone does not block server readiness. RUM Remote Configuration is marked NOT APPLICABLE on government sites because its documentation explicitly excludes them.
 
-`*.agent.<site>` and applicable `*.<RUM domain>` are reported separately as **ALLOWLIST REQUIREMENT / NOT DIRECTLY TESTABLE**. A wildcard is a firewall allowlist pattern, not one connection target. Concrete hostnames below it are probed separately; their success cannot prove that the firewall permits every hostname matching the pattern. Review wildcard coverage in the firewall configuration. No literal wildcard is queried, and resolving the parent domain never satisfies a wildcard.
+The [Agent Network Traffic documentation](https://docs.datadoghq.com/agent/configuration/network/) specifies `*.agent.<site>` for firewall inclusion, and [RUM Remote Configuration](https://docs.datadoghq.com/real_user_monitoring/remote_configuration/) specifies a regional browser-intake wildcard covering intake and `sdk-configuration` requests. These are configuration instructions, so the checker stores the applicable patterns as TXT guidance and in JSON `allowlist_requirements`. They are excluded from JSON `endpoints`, terminal rows, progress totals, category counts, REVIEW counts, readiness, and exit codes. No literal wildcard is queried or replaced with an invented sample hostname. The checker tests the documented concrete destinations, including the current versioned Agent app/flare hostnames and mapped RUM intake, `sdk-configuration`, quota, and logs hostnames. Connection success does not verify wildcard firewall configuration.
 
 By default, each scan discovers the latest stable Agent release from [Datadog's official latest release](https://github.com/DataDog/datadog-agent/releases/latest), even if an older Agent is installed. A HEAD request follows at most three HTTPS redirects, with a five-second connection timeout and a twelve-second total limit. Only an exact official release URL with a stable `X.Y.Z` tag is accepted. The checker probes the documented `X-Y-Z-app.agent.<site>` and `X-Y-Z-flare.agent.<site>` hostnames without installing the Agent. `--agent-version X.Y.Z` takes precedence over `DD_PREFLIGHT_AGENT_VERSION`; either bypasses the lookup and can target a planned or installed version when GitHub is unavailable. If lookup fails or returns no supported version, both versioned entries remain REVIEW and the terminal, TXT, and JSON reports explain why. The source (`latest-release`, `flag`, `environment`, or `none`) is shown alongside the Agent version.
 
@@ -206,9 +207,9 @@ TLS              PASS - Direct SNI, hostname and certificate chain verified
 HTTP             PASS - Endpoint reachable; application-level response received; environment route
 http_status      403
 
-*.agent.datadoghq.com - Agent metrics and flare allowlist
-Classification   ALLOWLIST REQUIREMENT
-DNS              NOT DIRECTLY TESTABLE - Manual review required; no network probe issued
+Documented firewall allowlist patterns (configuration guidance; excluded from test results and readiness):
+  *.agent.datadoghq.com
+  *.browser-intake-datadoghq.com
 
 Overall: READY WITH WARNINGS
 ```
@@ -216,6 +217,8 @@ Overall: READY WITH WARNINGS
 ## Sources, maintenance and tests
 
 **Last verified against Datadog docs: 2026-09-29.** The manifest is a reviewed snapshot, not a live discovery service. Review it before each POC/release and periodically as Datadog changes destinations. See [endpoint provenance and update instructions](docs/ENDPOINTS.md) for exact sources, schema, site exceptions and exclusions.
+
+The Agent/RUM wildcard distinction was checked again on 2026-10-03 using Context7 and the official documentation source. This was a targeted review, not a refresh of the entire manifest.
 
 Run the offline suite on Linux with `bash tests/run.sh` (Python 3 is needed only for tests). It runs ShellCheck if already available and never installs it. See [test strategy](docs/TESTING.md) for opt-in real network tests. Context7's official curl documentation was consulted for curlrc suppression, proxy behavior, redirect restrictions, and certificate verification.
 

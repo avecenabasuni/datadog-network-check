@@ -172,10 +172,10 @@ class UnitTests(unittest.TestCase):
 
     def test_terminal_review_is_explicitly_untested(self):
         output = self.run_code("category=agent; LAST_TERMINAL_CATEGORY=''; "
-            "E[hostname]='*.agent.datadoghq.com'; E[classification]='ALLOWLIST REQUIREMENT'; "
+            "E[hostname]='{version}-app.agent.datadoghq.com'; E[test_type]=version; E[classification]='NOT DIRECTLY TESTABLE'; "
             "terminal_endpoint")
         self.assertIn('REVIEW', output)
-        self.assertIn('Allowlist pattern, not a host; review firewall rule.', output)
+        self.assertIn('Agent version not determined; not tested.', output)
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
@@ -239,7 +239,7 @@ terminal_group_notes "$category"
             'full=$(terminal_destination_count); '
             'RECORDS=("${RECORDS[0]}" "${RECORDS[4]}"); '
             'printf "%s %s" "$full" "$(terminal_destination_count)"')
-        self.assertEqual(output, '53 1')
+        self.assertEqual(output, '51 1')
 
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
@@ -585,7 +585,7 @@ fi
         self.assertNotIn('\x1b', txt)
         manifest_rows = [line.split('|') for line in (self.root / 'config/endpoints.conf').read_text().splitlines()
                          if line and not line.startswith('#')]
-        expected_endpoints = sum(row[6] not in ('windows', 'desktop') and row[7] != 'excluded'
+        expected_endpoints = sum(row[6] not in ('windows', 'desktop') and row[7] not in ('excluded', 'wildcard')
                                  and (row[9] == 'all' or 'us1' in row[9].split(','))
                                  for row in manifest_rows)
         self.assertEqual(len(report['endpoints']), expected_endpoints)
@@ -645,10 +645,48 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
 
     def test_wildcard_never_probed(self):
         self.manifest('wildcard|agent|Agent wildcard|*.agent.{site}|443|https|all|wildcard|required|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
-        _, report = self.scan(1)
-        self.assertEqual(report['overall_status'], 'READY WITH WARNINGS')
+        result, report = self.scan(0)
+        self.assertEqual(report['overall_status'], 'READY')
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
         self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+        self.assertNotIn('*.agent', result.stdout)
+        self.assertNotIn('Manual review', result.stdout)
+        self.assertEqual(report['categories'], {'agent': 'PASS'})
+        self.assertEqual(report['untested_requirements'], [])
+        detailed = next((self.root / 'reports').glob('*.txt')).read_text()
+        self.assertIn('configuration guidance; excluded from test results and readiness', detailed)
+        self.assertIn('*.agent.datadoghq.com', detailed)
+
+    def test_wildcard_only_category_does_not_create_endpoint_or_warning(self):
+        self.manifest('wildcard|rum|Browser wildcard|*.{rum}|443|https|all|wildcard|informational|all|/|-|https://example.com/docs\n')
+        result, report = self.scan(0)
+        self.assertEqual(report['categories'], {'agent': 'PASS'})
+        self.assertEqual(report['direct_endpoint_counts'], {'pass': 1, 'warn': 0, 'fail': 0})
+        self.assertEqual(report['allowlist_requirements'], ['*.browser-intake-datadoghq.com'])
+        self.assertNotIn('*.browser-intake', result.stdout)
+        self.assertNotIn('REVIEW ', result.stdout)
+
+    def test_wildcard_docs_notes_follow_scope_for_all_nine_sites(self):
+        self.manifest(
+            'agent-pattern|agent|Agent pattern|*.agent.{site}|443|https|all|wildcard|required|all|/|-|https://example.com/docs\n'
+            'rum-pattern|rum|Browser pattern|*.{rum}|443|https|all|wildcard|informational|us1,us3,us5,eu1,ap1,ap2,uk1|/|-|https://example.com/docs\n')
+        records = [line.split('|') for line in (self.root / 'config/sites.conf').read_text().splitlines()
+                   if line and not line.startswith('#')]
+        for code, _, site_domain, rum_domain in records:
+            with self.subTest(site=code):
+                previous = set((self.root / 'reports').glob('*.json'))
+                result = bash(f'./dd-network-check.sh --site {code}', self.env, self.root)
+                self.assertEqual(result.returncode, 0, result.stderr + result.stdout)
+                report_path, = set((self.root / 'reports').glob('*.json')) - previous
+                report = json.loads(report_path.read_text())
+                patterns = [f'*.agent.{site_domain}']
+                if code not in ('us1-fed', 'us2-fed'):
+                    patterns.append(f'*.{rum_domain}')
+                self.assertEqual(report['allowlist_requirements'], patterns)
+                self.assertEqual([endpoint['id'] for endpoint in report['endpoints']], ['public'])
+                self.assertEqual(report['categories'], {'agent': 'PASS'})
+                self.assertEqual(report['untested_requirements'], [])
+                self.assertNotIn('REVIEW ', result.stdout)
 
     def test_version_override_probes_versioned_agent_hostname(self):
         (self.root / 'config/endpoints.conf').write_text(
@@ -683,37 +721,37 @@ exit 99
         self.assertIn('curl exit 28', report['endpoints'][0]['notes'])
         self.assertNotIn('7-75-0-app', (self.root / 'calls').read_text() if (self.root / 'calls').exists() else '')
 
-    def test_latest_release_probes_both_agent_hosts_and_keeps_wildcard_review(self):
+    def test_latest_release_probes_both_agent_hosts_and_keeps_wildcard_as_docs_note(self):
         (self.root / 'config/endpoints.conf').write_text(
             '# last_verified_against_datadog_docs=2026-09-29\n'
             'wildcard|agent|Allowlist|*.agent.{site}|443|https|all|wildcard|required|all|/|-|https://example.com/docs\n'
             'metrics|agent|Metrics|{version}-app.agent.{site}|443|https|all|version|required|all|/|-|https://example.com/docs\n'
             'flare|agent|Flare|{version}-flare.agent.{site}|443|https|all|version|informational|all|/|-|https://example.com/docs\n')
-        result, report = self.scan(1)
+        result, report = self.scan(0)
         self.assertEqual(report['metadata']['agent_version'], '7-84-1')
         self.assertEqual(report['metadata']['agent_version_source'], 'latest-release')
         self.assertEqual([endpoint['hostname'] for endpoint in report['endpoints']], [
-            '*.agent.datadoghq.com', '7-84-1-app.agent.datadoghq.com', '7-84-1-flare.agent.datadoghq.com'])
+            '7-84-1-app.agent.datadoghq.com', '7-84-1-flare.agent.datadoghq.com'])
         self.assertEqual([endpoint['classification'] for endpoint in report['endpoints']],
-                         ['ALLOWLIST REQUIREMENT', 'DIRECT TEST', 'DIRECT TEST'])
-        self.assertIn('review firewall rule.', result.stdout)
-        self.assertIn('concrete hostnames are probed separately', report['endpoints'][0]['notes'])
+                         ['DIRECT TEST', 'DIRECT TEST'])
+        self.assertEqual(report['allowlist_requirements'], ['*.agent.datadoghq.com'])
+        self.assertNotIn('*.agent', result.stdout)
         self.assertEqual(report['direct_endpoint_counts'], {'pass': 2, 'warn': 0, 'fail': 0})
         self.assertNotIn('*.agent', (self.root / 'calls').read_text())
 
     def test_summary_lists_only_categories_needing_attention(self):
-        self.manifest('wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
+        self.manifest('manual|other_requirements|Configured target|configuration-dependent|123|udp|all|manual|informational|all|/|-|https://example.com/docs\n')
         result, report = self.scan(1)
         summary = result.stdout.split('SUMMARY', 1)[1]
         self.assertIn('READY WITH WARNINGS', summary)
         self.assertRegex(summary, r'1 pass.*0 warn.*0 fail.*1 review')
         self.assertIn('By category', summary)
-        self.assertIn('rum: 0 pass, 0 warn, 0 fail, 1 review', summary)
+        self.assertIn('other requirements: 0 pass, 0 warn, 0 fail, 1 review', summary)
         attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
         self.assertIn('None', attention)
-        self.assertNotIn('rum:', attention)
-        self.assertIn('Manual review: 1 wildcard allowlist', summary)
-        self.assertEqual(report['categories'], {'agent': 'PASS', 'rum': 'WARN'})
+        self.assertNotIn('other requirements:', attention)
+        self.assertIn('Manual review: 1 other requirement(s)', summary)
+        self.assertEqual(report['categories'], {'agent': 'PASS', 'other_requirements': 'WARN'})
 
     def test_other_requirement_description_stays_under_manual_review(self):
         self.manifest('ntp|other_requirements|NTP targets from Agent configuration|configuration-dependent|123|udp|all|manual|informational|all|/|Review configured servers|https://example.com/docs\n')
@@ -723,7 +761,7 @@ exit 99
         self.assertNotIn('other requirements:', attention)
         self.assertIn('NTP targets from Agent configuration (UDP/123)', summary)
 
-    def test_summary_merges_rum_warning_and_review(self):
+    def test_rum_warning_is_independent_of_wildcard_docs_note(self):
         self.manifest(
             'rum-direct|rum|Browser intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|-|https://example.com/docs\n'
             'rum-wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
@@ -735,8 +773,8 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         summary = result.stdout.split('SUMMARY', 1)[1]
         attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
         self.assertEqual(attention.count('rum:'), 1)
-        self.assertIn('rum: 0 pass, 1 warn, 0 fail, 1 review', summary)
-        self.assertIn('Manual review: 1 wildcard allowlist', summary)
+        self.assertIn('rum: 0 pass, 1 warn, 0 fail, 0 review', summary)
+        self.assertNotIn('Manual review', summary)
 
     def test_rum_terminal_explicitly_limits_browser_claim(self):
         self.manifest()

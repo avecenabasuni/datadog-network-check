@@ -12,8 +12,6 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
   PASS   apt.datadoghq.com                                 ok   ok   ok 206
 
  AGENT ────────────────────────────────────────────────────────────────────────
-  REVIEW *.agent.datadoghq.com                             --   --   -- --
-       ↳ Allowlist pattern, not a host; review firewall rule.
   PASS   7-84-1-app.agent.datadoghq.com                    ok   ok   ok 403
   PASS   7-84-1-flare.agent.datadoghq.com                  ok   ok   ok 403
 
@@ -21,8 +19,6 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
   PASS   browser-intake-datadoghq.com                      ok   ok   ok 403
   WARN   sdk-configuration.browser-intake-datadoghq.com    ok   ok   ok 403
        ↳ Reachable, but response contains denial/filter wording; see TXT report.
-  REVIEW *.browser-intake-datadoghq.com                    --   --   -- --
-       ↳ Allowlist pattern, not a host; review firewall rule.
 
  CONTAINER REGISTRIES ─────────────────────────────────────────────────────────
   PASS   registry.datadoghq.com                            ok   ok   ok 302>200
@@ -41,12 +37,12 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                                                      │
 │                                                                              │
-│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 3 review                             │
+│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 1 review                             │
 │                                                                              │
 │  By category                                                                 │
 │    installation: 2 pass, 0 warn, 0 fail, 0 review                            │
-│    agent: 2 pass, 0 warn, 0 fail, 1 review                                   │
-│    rum: 1 pass, 1 warn, 0 fail, 1 review                                     │
+│    agent: 2 pass, 0 warn, 0 fail, 0 review                                   │
+│    rum: 1 pass, 1 warn, 0 fail, 0 review                                     │
 │    container registries: 5 pass, 1 warn, 0 fail, 0 review                    │
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
@@ -54,7 +50,7 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
 │    ⚠ rum: 1 denial/filter response(s); see TXT report                        │
 │    ⚠ container registries: 1 unexpected redirect(s); inspect proxy           │
 │                                                                              │
-│  Manual review: 2 wildcard allowlist; 1 other requirement(s)                 │
+│  Manual review: 1 other requirement(s)                                       │
 │    - UDP telemetry (UDP/8125)                                                │
 │  RUM: VM-side sanity only; end-user browser connectivity untested            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
