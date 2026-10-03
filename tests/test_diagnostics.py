@@ -196,7 +196,7 @@ printf '\nDD_PREFLIGHT_META\n200\nhttps://login.example.com/blocked\n192.0.2.2\n
         endpoint = report['endpoints'][0]
         self.assertEqual(endpoint['impact'], 'WARN')
         self.assertEqual(endpoint['redirect_host'], 'login.example.com')
-        self.assertIn('Unexpected redirect target; possible proxy/captive portal block page.', result.stdout)
+        self.assertIn('Unexpected redirect target. Possible proxy/captive portal block page.', result.stdout)
 
     def test_reachable_307_and_failed_redirect_do_not_block_origin(self):
         self.redirect_fixture(r'''
@@ -213,7 +213,7 @@ exit 28
         self.assertEqual(http['redirect_result']['remote_ip'], '192.0.2.2')
         self.assertEqual(http['redirect_result']['curl_exit'], '28')
         self.assertNotIn('secret=withheld', result.stdout)
-        self.assertIn('Redirect follow-up failed; see TXT report.', result.stdout)
+        self.assertIn('Redirect follow-up failed. See TXT report.', result.stdout)
         self.assertEqual((self.root / 'calls').read_text().count('--disable --silent'), 2)
 
     def test_redirect_certificate_failure_remains_visible(self):

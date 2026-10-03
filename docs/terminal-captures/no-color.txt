@@ -4,7 +4,7 @@
 ██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║
 ██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝
 ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝
-  N E T W O R K   P R E F L I G H T          v0.1.5
+  N E T W O R K   P R E F L I G H T          v0.1.6
   ────────────────────────────────────────────────────────────
   eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
 
@@ -34,27 +34,27 @@
   PASS   eu.gcr.io                                         ok   ok   ok 302>200
   PASS   asia.gcr.io                                       ok   ok   ok 302>200
   WARN   us-docker.pkg.dev                                 ok   ok   ok 302>200
-       ↳ Unexpected redirect target; possible proxy/captive portal block page.
+       ↳ Unexpected redirect target. Possible proxy/captive portal block page.
   PASS   public.ecr.aws                                    ok   ok   ok 401
        ↳ Allow docs.datadoghq.com, accounts.google.com.
 
  NTP ──────────────────────────────────────────────────────────────────────────
   PASS   0.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
   PASS   1.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
   PASS   2.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
   PASS   3.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
 
  OTHER REQUIREMENTS ───────────────────────────────────────────────────────────
   REVIEW destination-unspecified                           --   --   -- --
-       ↳ Manual target; not tested.
+       ↳ Manual target. not tested.
 
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                                                      │
@@ -70,11 +70,11 @@
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
 │  Needs attention                                                             │
-│    ⚠ container registries: 1 unexpected redirect(s); inspect proxy           │
+│    ⚠ container registries: 1 unexpected redirect(s). inspect proxy           │
 │                                                                              │
 │  Manual review: 1 other requirement(s)                                       │
 │    - UDP telemetry (UDP/8125)                                                │
-│  RUM: VM-side sanity only; end-user browser connectivity untested            │
+│  RUM: VM-side sanity only. end-user browser connectivity untested            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
   Reports: /home/ave/reports

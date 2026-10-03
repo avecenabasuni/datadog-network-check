@@ -146,6 +146,7 @@ def main():
     for name, (tty, env) in variants.items():
         output = render(tty, env)
         visible = re.sub(rb'\x1b\[[0-9;?]*[A-Za-z]', b'', output)
+        assert b';' not in visible, name
         lines = visible.decode('utf-8').replace('\r', '\n').splitlines()
         body_lines = [line for line in lines if not line.startswith(('  Reports:', '  TXT ', '  JSON '))]
         assert max(map(len, body_lines)) <= (50 if name == 'narrow-50.txt' else 80), name
@@ -158,7 +159,7 @@ def main():
         if name == 'ascii-locale.txt':
             assert output.isascii()
         if name == 'piped.txt':
-            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.5\n')
+            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.6\n')
         (OUT / name).write_bytes(output)
         print(f'{name}: {len(output)} bytes')
     interrupted = render(True, {}, INTERRUPT_SCRIPT, expected=3)

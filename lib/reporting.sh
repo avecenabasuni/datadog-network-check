@@ -30,7 +30,7 @@ terminal_symbol() {
     fi
 }
 terminal_status() {
-    local status=$1 label=$2 color='' symbol
+    local status=$1 label=${2//;/.} color='' symbol
     symbol=$(terminal_symbol "$status")
     if terminal_color_enabled; then
         case $status in
@@ -64,14 +64,14 @@ terminal_width() {
     printf '%s' "$width"
 }
 terminal_truncate() {
-    local value=$1 limit=$2 marker='...'
+    local value=${1//;/.} limit=$2 marker='...'
     terminal_utf8 && marker='…'
     if ((${#value}<=limit)); then printf '%s' "$value"
     elif ((limit>${#marker})); then printf '%s%s' "${value:0:limit-${#marker}}" "$marker"
     else printf '%s' "${value:0:limit}"; fi
 }
 terminal_middle_host() {
-    local value=$1 limit=$2 marker='...' room suffix prefix
+    local value=${1//;/.} limit=$2 marker='...' room suffix prefix
     terminal_utf8 && marker='…'
     if ((${#value}<=limit)); then printf '%s' "$value"; return; fi
     room=$((limit-${#marker}))
@@ -137,17 +137,13 @@ terminal_purple() {
     printf '\033[38;5;98m'
 }
 terminal_wrap() {
-    local rest=$1 prefix=$2 continuation=$3 width limit chunk suffix
+    local rest=${1//;/.} prefix=$2 continuation=$3 width limit chunk
     width=$(terminal_width)
     ((width>=30)) || width=30
     while ((${#prefix}+${#rest} > width)); do
         limit=$((width-${#prefix}))
         chunk=${rest:0:limit}
-        if [[ $chunk == *'; '* ]]; then
-            suffix=${chunk##*; }
-            if ((${#suffix}<25)); then chunk="${chunk%; *};"
-            else chunk=${chunk% *}; fi
-        elif [[ $chunk == *' '* ]]; then
+        if [[ $chunk == *' '* ]]; then
             chunk=${chunk% *}
         fi
         [[ -n $chunk ]] || chunk=${rest:0:limit}
@@ -187,7 +183,7 @@ terminal_full_host_note() {
         else printf '%s\n' "$line"; fi
     done < <(terminal_wrap "$1" "$prefix" "$continuation")
 }
-terminal_progress() {
+terminal_progress_frame() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
     local width label spinner
     local -a frames=('|' '/' '-' $'\\')
@@ -197,14 +193,35 @@ terminal_progress() {
     label="$spinner Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}"
     printf '\r\033[2K\033[2m%s\033[0m' "$(terminal_truncate "$label" "$width")"
 }
-terminal_progress_clear() {
+terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
-    printf '\r\033[2K'
+    terminal_progress_clear
+    TERMINAL_PROGRESS_ACTIVE=1
+    printf '\033[?25l'
+    terminal_progress_frame
+    have sleep || return 0
+    (
+        trap - EXIT
+        trap 'exit 0' INT TERM HUP
+        while sleep 0.12; do terminal_progress_frame; done
+    ) &
+    TERMINAL_PROGRESS_PID=$!
+}
+terminal_progress_clear() {
+    if [[ -n ${TERMINAL_PROGRESS_PID-} ]]; then
+        kill "$TERMINAL_PROGRESS_PID" 2>/dev/null || :
+        wait "$TERMINAL_PROGRESS_PID" 2>/dev/null || :
+        unset TERMINAL_PROGRESS_PID
+    fi
+    [[ ${TERMINAL_PROGRESS_ACTIVE-0} == 1 ]] || return 0
+    TERMINAL_PROGRESS_ACTIVE=0
+    [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
+    printf '\r\033[2K\033[?25h'
 }
 terminal_interrupt() {
     terminal_progress_clear
     if [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled; then printf '\033[0m\033[?25h'; fi
-    error 'Scan interrupted; incomplete files retained in reports, no final readiness report'
+    error 'Scan interrupted. Incomplete files retained in reports, no final readiness report'
     exit 3
 }
 terminal_destination_count() {
@@ -311,11 +328,11 @@ terminal_table_header() {
     fi
 }
 terminal_endpoint() {
-    local state hint field detail http_display dns_display tcp_display tls_display
+    local state hint field detail attempt http_display dns_display tcp_display tls_display
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
     if [[ ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
+        if [[ ${E[test_type]} == version ]]; then hint='Agent version not determined. Not tested.'
         else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
         terminal_note "$hint"
@@ -341,24 +358,36 @@ terminal_endpoint() {
         if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist ]]; then return 0; fi
     fi
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
-        terminal_note 'Possible security filtering; see TXT report.'
+        terminal_note 'Possible security filtering. See TXT report.'
         return 0
     fi
-    if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
+    if [[ ${E[notes]} == *'Origin HTTPS recovered on retry'* ]]; then
+        terminal_note 'HTTP: origin reached after a failed attempt. See TXT report.'
+        return 0
+    fi
+    if [[ ${E[http]} != PASS && ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
         if [[ ${E[notes]} == *'Unexpected redirect target; possible proxy/captive portal block page.'* ]]; then
-            terminal_note 'Unexpected redirect target; possible proxy/captive portal block page.'
+            terminal_note 'Unexpected redirect target. Possible proxy/captive portal block page.'
             return 0
         fi
         if [[ ${E[redirect_http]} == FAIL ]]; then
-            terminal_note 'Redirect follow-up failed; see TXT report.'
+            terminal_note 'Redirect follow-up failed. See TXT report.'
         else
-            terminal_note 'Redirect follow-up needs review; see TXT report.'
+            terminal_note 'Redirect follow-up needs review. See TXT report.'
         fi
         return 0
     fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
         [[ $field != cname || ${E[cname]} != SKIPPED ]] || continue
+        if [[ $field == tcp && ( ${E[tcp]} == WARN || ${E[tcp]} == FAIL ) ]]; then
+            while IFS= read -r attempt; do
+                [[ $attempt == *' FAIL - '* ]] || continue
+                [[ ${E[tcp]} != WARN || $attempt != *'network unreachable'* ]] || continue
+                terminal_note "TCP: $attempt."
+                return 0
+            done <<< "${E[tcp_attempts]}"
+        fi
         detail=${E[${field}_detail]}
         if ((${#detail}>64)); then
             terminal_note "${field^^} check needs review; see TXT report."
@@ -413,7 +442,7 @@ terminal_box_border() {
     printf '%s%s%s%s\n' "$left" "$title" "${fill// /$divider}" "$right"
 }
 terminal_box_line() {
-    local content=$1 state=${2-} width padding color=''
+    local content=${1//;/.} state=${2-} width padding color=''
     width=$(terminal_width)
     printf -v padding '%*s' "$((width-4-${#content}))" ''
     if terminal_color_enabled; then
@@ -430,7 +459,7 @@ terminal_box_line() {
     if terminal_utf8; then printf '%s│\n' "$padding"; else printf '%s|\n' "$padding"; fi
 }
 terminal_box_wrap() {
-    local rest=$1 state=${2-} continuation=${3-} width limit chunk
+    local rest=${1//;/.} state=${2-} continuation=${3-} width limit chunk
     width=$(terminal_width)
     limit=$((width-4))
     while ((${#rest}>limit)); do
@@ -525,9 +554,16 @@ terminal_summary() {
     terminal_box_wrap 'RUM: VM-side sanity only; end-user browser connectivity untested' '' '  '
     terminal_box_border bottom
     printf '\n'
-    printf '  Reports: %s\n' "${REPORT_BASE%/*}"
-    printf '  TXT  %s.txt\n' "${REPORT_BASE##*/}"
-    printf '  JSON %s.json\n' "${REPORT_BASE##*/}"
+    printf '  Reports: %s\n' "$(terminal_path "${REPORT_BASE%/*}")"
+    printf '  TXT  %s.txt\n' "$(terminal_path "${REPORT_BASE##*/}")"
+    printf '  JSON %s.json\n' "$(terminal_path "${REPORT_BASE##*/}")"
+}
+terminal_path() {
+    local text=$1
+    if [[ $text == *';'* ]]; then
+        text=${text//\\/\\\\}; text=${text//\'/\\\'}
+        printf "\$'%s'" "${text//;/\\073}"
+    else printf '%s' "$text"; fi
 }
 report_init() {
     local safe_host stamp

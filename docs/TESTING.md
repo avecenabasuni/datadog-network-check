@@ -1,5 +1,7 @@
 # Testing
 
+Terminal regressions reproduce a TCP-warning `eu.gcr.io` scan with a verified redirect, check warning/count consistency across terminal/TXT/JSON, and assert no visible semicolons. PTY tests hold one foreground probe while multiple spinner frames appear, retain parent result state, restart for another endpoint, and check helper reaping and cursor restoration on explicit stop, EXIT and TERM. Terminal capture generation strips ANSI controls before checking punctuation. Context7's GNU Bash execution-environment, wait and signal references and curl redirect documentation were reviewed for these changes.
+
 The checker runtime needs no Python. The regression suite uses Python 3's standard-library `unittest` to invoke Bash and inspect JSON. It writes isolated fixtures only below `reports/`, removes its own fixtures, and makes no external network calls. NTP tests exchange real UDP datagrams on IPv4/IPv6 loopback only.
 
 NTP regressions cover valid NTPv3/v4 replies, malformed/truncated/untrusted bytes, origin mismatch, wrong mode/version/stratum, zero transmit timestamp, unsynchronized servers, Kiss-o'-Death, response deadlines, address sampling/recovery, missing tools, public versus explicit target impact, override validation, and terminal/TXT/JSON readiness consistency. Context7's Datadog NTP overview and Agent troubleshooting references were checked on 2026-10-03, with the official Agent implementation and RFC 5905 for packet behavior.

@@ -4,7 +4,7 @@
 ██║  ██║██╔══██║   ██║   ██╔══██║██║  ██║██║   ██║██║   ██║
 ██████╔╝██║  ██║   ██║   ██║  ██║██████╔╝╚██████╔╝╚██████╔╝
 ╚═════╝ ╚═╝  ╚═╝   ╚═╝   ╚═╝  ╚═╝╚═════╝  ╚═════╝  ╚═════╝
-  N E T W O R K   P R E F L I G H T          v0.1.5
+  N E T W O R K   P R E F L I G H T          v0.1.6
   ────────────────────────────────────────────────────────────
 [0m  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
 
@@ -15,46 +15,46 @@
   NTP: documented public fallback (UDP/123)
 
   STATUS DESTINATION                                      DNS  TCP  TLS HTTP
-[2K
+
  [1mINSTALLATION[0m [2m─────────────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 0/17 install.datadoghq.com[0m[2K  [32mPASS  [0m install.datadoghq.com                           [2m  ok   ok   ok 200[0m
-[2K[2m/ Checking 1/17 apt.datadoghq.com[0m[2K  [32mPASS  [0m apt.datadoghq.com                               [2m  ok   ok   ok 206[0m
-[2K
+[?25l[2K[2m| Checking 0/17 install.datadoghq.com[0m[2K[?25h  [32mPASS  [0m install.datadoghq.com                           [2m  ok   ok   ok 200[0m
+[?25l[2K[2m/ Checking 1/17 apt.datadoghq.com[0m[2K[?25h  [32mPASS  [0m apt.datadoghq.com                               [2m  ok   ok   ok 206[0m
+
  [1mAGENT[0m [2m────────────────────────────────────────────────────────────────────────[0m
-[2K[2m- Checking 2/17 7-84-1-app.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-app.agent.datadoghq.com                  [2m  ok   ok   ok 403[0m
-[2K[2m\ Checking 3/17 7-84-1-flare.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-flare.agent.datadoghq.com                [2m  ok   ok   ok 403[0m
-[2K
+[?25l[2K[2m- Checking 2/17 7-84-1-app.agent.datadoghq.com[0m[2K[?25h  [32mPASS  [0m 7-84-1-app.agent.datadoghq.com                  [2m  ok   ok   ok 403[0m
+[?25l[2K[2m\ Checking 3/17 7-84-1-flare.agent.datadoghq.com[0m[2K[?25h  [32mPASS  [0m 7-84-1-flare.agent.datadoghq.com                [2m  ok   ok   ok 403[0m
+
  [1mRUM (VM-side only)[0m [2m───────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 4/17 browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
-[2K[2m/ Checking 5/17 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
-[2K
+[?25l[2K[2m| Checking 4/17 browser-intake-datadoghq.com[0m[2K[?25h  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
+[?25l[2K[2m/ Checking 5/17 sdk-configuration.browser-intake-datadoghq.com[0m[2K[?25h  [32mPASS  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
+
  [1mCONTAINER REGISTRIES[0m [2m─────────────────────────────────────────────────────────[0m
-[2K[2m- Checking 6/17 registry.datadoghq.com[0m[2K  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
-[2K[2m\ Checking 7/17 gcr.io[0m[2K  [32mPASS  [0m gcr.io                                          [2m  ok   ok   ok 302>200[0m
-[2K[2m| Checking 8/17 eu.gcr.io[0m[2K  [32mPASS  [0m eu.gcr.io                                       [2m  ok   ok   ok 302>200[0m
-[2K[2m/ Checking 9/17 asia.gcr.io[0m[2K  [32mPASS  [0m asia.gcr.io                                     [2m  ok   ok   ok 302>200[0m
-[2K[2m- Checking 10/17 us-docker.pkg.dev[0m[2K  [33mWARN  [0m us-docker.pkg.dev                               [2m  ok   ok   ok 302>200[0m
-[2m       ↳ Unexpected redirect target; possible proxy/captive portal block page.[0m
-[2K[2m\ Checking 11/17 public.ecr.aws[0m[2K  [32mPASS  [0m public.ecr.aws                                  [2m  ok   ok   ok 401[0m
-[2K[2m       ↳ Allow docs.datadoghq.com, accounts.google.com.[0m
+[?25l[2K[2m- Checking 6/17 registry.datadoghq.com[0m[2K[?25h  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
+[?25l[2K[2m\ Checking 7/17 gcr.io[0m[2K[?25h  [32mPASS  [0m gcr.io                                          [2m  ok   ok   ok 302>200[0m
+[?25l[2K[2m| Checking 8/17 eu.gcr.io[0m[2K[?25h  [32mPASS  [0m eu.gcr.io                                       [2m  ok   ok   ok 302>200[0m
+[?25l[2K[2m/ Checking 9/17 asia.gcr.io[0m[2K[?25h  [32mPASS  [0m asia.gcr.io                                     [2m  ok   ok   ok 302>200[0m
+[?25l[2K[2m- Checking 10/17 us-docker.pkg.dev[0m[2K[?25h  [33mWARN  [0m us-docker.pkg.dev                               [2m  ok   ok   ok 302>200[0m
+[2m       ↳ Unexpected redirect target. Possible proxy/captive portal block page.[0m
+[?25l[2K[2m\ Checking 11/17 public.ecr.aws[0m[2K[?25h  [32mPASS  [0m public.ecr.aws                                  [2m  ok   ok   ok 401[0m
+[2m       ↳ Allow docs.datadoghq.com, accounts.google.com.[0m
 
  [1mNTP[0m [2m──────────────────────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 12/17 0.datadog.pool.ntp.org[0m[2K  [32mPASS  [0m 0.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
-[2K[2m/ Checking 13/17 1.datadog.pool.ntp.org[0m[2K  [32mPASS  [0m 1.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
-[2K[2m- Checking 14/17 2.datadog.pool.ntp.org[0m[2K  [32mPASS  [0m 2.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
-[2K[2m\ Checking 15/17 3.datadog.pool.ntp.org[0m[2K  [32mPASS  [0m 3.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
-        direct UDP/123
-[2K
+[?25l[2K[2m| Checking 12/17 0.datadog.pool.ntp.org[0m[2K[?25h  [32mPASS  [0m 0.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
+[?25l[2K[2m/ Checking 13/17 1.datadog.pool.ntp.org[0m[2K[?25h  [32mPASS  [0m 1.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
+[?25l[2K[2m- Checking 14/17 2.datadog.pool.ntp.org[0m[2K[?25h  [32mPASS  [0m 2.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
+[?25l[2K[2m\ Checking 15/17 3.datadog.pool.ntp.org[0m[2K[?25h  [32mPASS  [0m 3.datadog.pool.ntp.org                          [2m  ok   --   -- --[0m
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
+        UDP/123
+
  [1mOTHER REQUIREMENTS[0m [2m───────────────────────────────────────────────────────────[0m
-[2K[2m| Checking 16/17 destination-unspecified[0m[2K  [36mREVIEW[0m destination-unspecified                         [2m  --   --   -- --[0m
-[2m       ↳ Manual target; not tested.[0m
+[?25l[2K[2m| Checking 16/17 destination-unspecified[0m[2K[?25h  [36mREVIEW[0m destination-unspecified                         [2m  --   --   -- --[0m
+[2m       ↳ Manual target. not tested.[0m
 
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  [33m⚠  READY WITH WARNINGS[0m                                                      │
@@ -70,11 +70,11 @@
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
 │  Needs attention                                                             │
-│  [33m  ⚠ container registries: 1 unexpected redirect(s); inspect proxy[0m           │
+│  [33m  ⚠ container registries: 1 unexpected redirect(s). inspect proxy[0m           │
 │                                                                              │
 │  Manual review: 1 other requirement(s)                                       │
 │    - UDP telemetry (UDP/8125)                                                │
-│  RUM: VM-side sanity only; end-user browser connectivity untested            │
+│  RUM: VM-side sanity only. end-user browser connectivity untested            │
 ╰──────────────────────────────────────────────────────────────────────────────╯
 
   Reports: /home/ave/reports

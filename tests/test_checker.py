@@ -123,7 +123,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(tty_banner('C.UTF-8', 80, 'TERMINAL_NO_BANNER=1;'), '')
         piped = bash(setup + 'TERMINAL_TTY=0; terminal_banner')
         self.assertEqual(piped.returncode, 0, piped.stderr)
-        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.5\n')
+        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.6\n')
         self.assertNotIn('\x1b', piped.stdout)
 
     def test_compact_warning_explains_skipped_optional_tls_probe(self):
@@ -141,7 +141,7 @@ class UnitTests(unittest.TestCase):
             "E[http_detail]='Redirect'; terminal_table_header; terminal_endpoint")
         self.assertIn('STATUS DESTINATION', output)
         self.assertRegex(output, r'WARN\s+api\.datadoghq\.com\s+ok\s+ok\s+ok\s+307>200')
-        self.assertIn('Redirect follow-up needs review; see TXT report.', output)
+        self.assertIn('Redirect follow-up needs review. See TXT report.', output)
 
     def test_terminal_long_and_narrow_rows_keep_full_hostname(self):
         hostname = 'instrumentation-telemetry-intake.datadoghq.com'
@@ -175,7 +175,7 @@ class UnitTests(unittest.TestCase):
             "E[hostname]='{version}-app.agent.datadoghq.com'; E[test_type]=version; E[classification]='NOT DIRECTLY TESTABLE'; "
             "terminal_endpoint")
         self.assertIn('REVIEW', output)
-        self.assertIn('Agent version not determined; not tested.', output)
+        self.assertIn('Agent version not determined. Not tested.', output)
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
@@ -192,8 +192,8 @@ class UnitTests(unittest.TestCase):
             "https://accounts.google.com/[path omitted]; review destination allowlist' "
             "'       ' '             '")
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
-        self.assertIn('https://accounts.google.com/[path omitted];', output)
-        self.assertIn('review destination allowlist', output)
+        self.assertIn('https://accounts.google.com/[path omitted].', output)
+        self.assertIn('review destination allowlist', ' '.join(output.split()))
 
     def test_terminal_groups_expected_redirect_hosts_once(self):
         output = self.run_code(r'''
@@ -610,8 +610,8 @@ fi
         self.manifest()
         result, report = self.scan(0, interactive=True)
         self.assertIn('9) US2-FED', result.stdout)
-        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.5', result.stdout)
-        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.5'), 1)
+        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.6', result.stdout)
+        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.6'), 1)
         self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
         self.assertIn('Choice: \nDATADOG NETWORK PREFLIGHT', result.stdout)
         self.assertRegex(result.stdout, r'1 pass.*0 warn.*0 fail.*0 review')

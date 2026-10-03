@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tool 0.1.6 fixes terminal warning attribution: a successful registry redirect no longer hides TCP/DNS/TLS warnings, and origin retry warnings retain the endpoint row. All visible terminal text uses periods instead of semicolons. The TTY spinner now refreshes every 120 ms during foreground probes, is stopped and reaped before results, and restores the cursor on normal exit or interruption. Probes remain sequential in the parent shell.
 - Add direct UDP/123 NTP probes for the four documented Datadog public fallback pools. Validate matched replies and report timeout, invalid-response, unsynchronized-server and Kiss-o'-Death results. Repeatable `--ntp-host` replaces pools with required customer targets; default pool failures remain informational. NTP ignores HTTP proxies and needs no Python or package installation. Tool version is 0.1.5; additive JSON schema 1.4 records NTP results, history and target provenance.
 - Treat generic denial wording such as `Access Denied` as a report note, preserving PASS for verified HTTPS reachability. This removes the false connectivity warning on RUM Remote Configuration S3/CloudFront 403 responses. Vendor-plus-denial signatures, service/proxy errors, retries, and transport/TLS failures retain their existing impact.
 - Show Proxy, Tools, Scope, and Agent on separate terminal lines, including wrapped output on narrow terminals.

@@ -1,4 +1,4 @@
- ▌ DATADOG NETWORK PREFLIGHT               v0.1.5
+ ▌ DATADOG NETWORK PREFLIGHT               v0.1.6
  ────────────────────────────────────────────────
  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datado…
 
@@ -41,8 +41,8 @@
         DNS ok  TCP ok  TLS ok  HTTP 302>200
   WARN   us-docker.pkg.dev
         DNS ok  TCP ok  TLS ok  HTTP 302>200
-       ↳ Unexpected redirect target;
-         possible proxy/captive portal block page.
+       ↳ Unexpected redirect target. Possible
+         proxy/captive portal block page.
   PASS   public.ecr.aws
         DNS ok  TCP ok  TLS ok  HTTP 401
        ↳ Allow docs.datadoghq.com,
@@ -52,24 +52,24 @@
   PASS   0.datadog.pool.ntp.org
         DNS ok  TCP --  TLS --  HTTP --
         NTP UDP/123: PASS - Valid matched NTPv3
-        server reply; stratum 2; direct UDP/123
+        server reply. stratum 2. direct UDP/123
   PASS   1.datadog.pool.ntp.org
         DNS ok  TCP --  TLS --  HTTP --
         NTP UDP/123: PASS - Valid matched NTPv3
-        server reply; stratum 2; direct UDP/123
+        server reply. stratum 2. direct UDP/123
   PASS   2.datadog.pool.ntp.org
         DNS ok  TCP --  TLS --  HTTP --
         NTP UDP/123: PASS - Valid matched NTPv3
-        server reply; stratum 2; direct UDP/123
+        server reply. stratum 2. direct UDP/123
   PASS   3.datadog.pool.ntp.org
         DNS ok  TCP --  TLS --  HTTP --
         NTP UDP/123: PASS - Valid matched NTPv3
-        server reply; stratum 2; direct UDP/123
+        server reply. stratum 2. direct UDP/123
 
  OTHER REQUIREMENTS ─────────────────────────────
   REVIEW destination-unspecified
         DNS --  TCP --  TLS --  HTTP --
-       ↳ Manual target; not tested.
+       ↳ Manual target. not tested.
 
 ╭─ SUMMARY ──────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                        │
@@ -90,11 +90,11 @@
 │                                                │
 │  Needs attention                               │
 │    ⚠ container registries: 1 unexpected        │
-│      redirect(s); inspect proxy                │
+│      redirect(s). inspect proxy                │
 │                                                │
 │  Manual review: 1 other requirement(s)         │
 │    - UDP telemetry (UDP/8125)                  │
-│  RUM: VM-side sanity only; end-user browser    │
+│  RUM: VM-side sanity only. end-user browser    │
 │    connectivity untested                       │
 ╰────────────────────────────────────────────────╯
 

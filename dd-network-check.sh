@@ -21,7 +21,7 @@ source "$ROOT/lib/reporting.sh" || exit 3
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.5
+TOOL_VERSION=0.1.6
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
@@ -37,7 +37,7 @@ main() {
             --ntp-host) (($#>=2)) || { error '--ntp-host requires a hostname or IP'; return 3; }; add_ntp_host "$2" || return 3; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets); UDP/123.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets). UDP/123.\n--quiet uses a compact terminal header. --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -72,13 +72,14 @@ main() {
     terminal_banner
     report_init || { error 'Cannot initialize private reports'; return 3; }
     trap terminal_interrupt INT TERM HUP
+    trap terminal_progress_clear EXIT
     emit '========================================'; emit ' DATADOG NETWORK PREFLIGHT'; emit '========================================'
     emit "Host       : $MACHINE"; emit "OS         : $OS_NAME"; emit "Site       : ${SITE_LABELS[$SITE]} (${SITE_DOMAINS[$SITE]})"
     emit "Timestamp  : $TIMESTAMP"; emit "Docs review: $VERIFIED"; emit ''
     emit "Version    : $TOOL_VERSION"
     emit 'Dependency availability'
     DEPENDENCY_JSON='{'
-    for dep in bash curl getent dig nslookup openssl timeout nc dd od; do
+    for dep in bash curl getent dig nslookup openssl timeout nc dd od sleep; do
         state=unavailable; have "$dep" && state=available
         emit "$(printf '%-12s %s' "$dep" "$state")"
         if [[ $state == available ]]; then available_tools+=" $dep"

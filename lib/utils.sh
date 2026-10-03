@@ -3,7 +3,7 @@
 # Site and Agent globals are read by the entry point after this module is sourced.
 # shellcheck disable=SC2154,SC2034
 have() { command -v "$1" >/dev/null 2>&1; }
-error() { printf 'ERROR: %s\n' "$*" >&2; }
+error() { local message=$*; printf 'ERROR: %s\n' "${message//;/.}" >&2; }
 clean() { LC_ALL=C tr -d '\000-\010\013-\037\177'; }
 json_string() {
     local s=${1-} i c
