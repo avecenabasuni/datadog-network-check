@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Show Proxy, Tools, Scope, and Agent on separate terminal lines, including wrapped output on narrow terminals.
+- Default to the latest stable Agent release from the official GitHub release redirect instead of detecting a local installation. Explicit flag/environment version overrides still take precedence and avoid GitHub access.
+- Probe both versioned Agent destinations after successful lookup. Keep them in REVIEW with a reported reason if discovery fails; record version source and lookup detail in JSON metadata.
+- Explain that wildcard rows represent firewall allowlist patterns; concrete destinations are tested separately, while wildcard coverage still requires configuration review.
+
 ## 0.1.4 — 2026-09-30
 
 ### Changes that can alter PASS/WARN/REVIEW totals

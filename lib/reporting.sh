@@ -253,13 +253,15 @@ terminal_category_start() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    local proxy='none' separator=' | '
-    terminal_utf8 && separator=' · '
+    local proxy='none'
     ((PROXY_PRESENT)) && proxy='configured (values withheld)'
     printf '\n'
-    terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
+    terminal_wrap "Proxy: $proxy" '  ' '  '
+    terminal_wrap "Tools: ${available:-none}" '  ' '         '
     [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
-    printf '  Agent: %s\n' "${AGENT_VERSION_DISPLAY:-not determined}"
+    printf '  Scope: all destinations\n'
+    terminal_wrap "Agent: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE:-none})" '  ' '         '
+    [[ -z ${AGENT_VERSION_DETAIL-} ]] || terminal_wrap "$AGENT_VERSION_DETAIL" '  ' '  '
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -310,7 +312,7 @@ terminal_endpoint() {
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
     if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Wildcard allowlist; not tested.'
+        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Allowlist pattern, not a host; review firewall rule.'
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
         else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
@@ -663,6 +665,8 @@ report_finish() {
         printf ',"os":'; json_string "$OS_NAME"
         printf ',"last_verified_against_datadog_docs":'; json_string "$VERIFIED"
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
+        printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
+        printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"
         printf ',"parameter":'; json_string "${SITE_DOMAINS[$SITE]}"; printf '},"categories":{'

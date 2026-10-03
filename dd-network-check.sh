@@ -32,7 +32,7 @@ main() {
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and local Agent detection.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan using the latest stable Agent release.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -86,6 +86,7 @@ main() {
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     detect_agent_version || return 3
     emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
+    [[ -z $AGENT_VERSION_DETAIL ]] || emit "$AGENT_VERSION_DETAIL"
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
@@ -110,6 +111,11 @@ main() {
             E[classification]='NOT DIRECTLY TESTABLE'
             [[ $test_type != wildcard ]] || E[classification]='ALLOWLIST REQUIREMENT'
             for field in dns cname tcp tls http; do E[$field]='NOT DIRECTLY TESTABLE'; E[${field}_detail]='Manual review required; no network probe issued'; done
+            if [[ $test_type == wildcard ]]; then
+                add_note 'Allowlist pattern, not a connection target; concrete hostnames are probed separately; review firewall wildcard coverage'
+            elif [[ $test_type == version ]]; then
+                add_note "$AGENT_VERSION_DETAIL"
+            fi
         else
             if [[ $test_type == version ]]; then host=${host//\{version\}/$AGENT_VERSION}; E[hostname]=$host; fi
             terminal_category_start

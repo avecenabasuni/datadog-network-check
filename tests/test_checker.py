@@ -175,7 +175,7 @@ class UnitTests(unittest.TestCase):
             "E[hostname]='*.agent.datadoghq.com'; E[classification]='ALLOWLIST REQUIREMENT'; "
             "terminal_endpoint")
         self.assertIn('REVIEW', output)
-        self.assertIn('Wildcard allowlist; not tested.', output)
+        self.assertIn('Allowlist pattern, not a host; review firewall rule.', output)
         self.assertNotIn('DNS ok', output)
         self.assertLessEqual(max(map(len, output.splitlines())), 80)
 
@@ -337,33 +337,56 @@ dns_check example.com; echo "${E[dns]} ${E[cname]}"; echo "${E[cnames]}"; echo "
         self.assertIn('FAIL 192.0.2.1', output)
         self.assertIn('resolver paths disagree', output)
 
-    def test_agent_version_derivation(self):
-        for version, expected in [('7.75.0', '7-75-0'), ('7.75.0-rc.1', '')]:
-            output = self.run_code('have() { return 0; }; timeout() { echo "Agent ' + version +
-                ' - Commit: example"; }; detect_agent_version; echo "$AGENT_VERSION"')
-            self.assertEqual(output, expected)
+    def test_latest_stable_agent_lookup_is_bounded_and_does_not_use_installed_agent(self):
+        output = self.run_code(r'''
+SSLKEYLOGFILE=/must-not-write; export SSLKEYLOGFILE
+datadog-agent() { echo 'Agent 7.75.0'; }
+curl() {
+    [[ -z ${SSLKEYLOGFILE-} && ${*: -1} == https://github.com/DataDog/datadog-agent/releases/latest ]] || return 99
+    [[ " $* " == *' --head '* && " $* " == *' --max-time 12 '* && " $* " == *' --max-redirs 3 '* ]] || return 99
+    [[ " $* " == *' --proto =https --proto-redir =https '* && " $* " != *' --insecure '* ]] || return 99
+    echo 'https://github.com/DataDog/datadog-agent/releases/tag/7.84.1'
+}
+detect_agent_version
+printf '%s %s %s' "$AGENT_VERSION_SOURCE" "$AGENT_VERSION" "$AGENT_VERSION_DISPLAY"
+''')
+        self.assertEqual(output, 'latest-release 7-84-1 7.84.1')
 
-    def test_agent_version_parsing_from_dpkg_and_rpm_samples(self):
-        dpkg = self.run_code("agent_version_from_output $'Package: datadog-agent\\nVersion: 1:7.75.0-1\\n' dpkg; "
-                             'printf "%s %s" "$AGENT_VERSION" "$AGENT_VERSION_DISPLAY"')
-        rpm = self.run_code("agent_version_from_output 'datadog-agent-7.76.1-1.x86_64' rpm; "
-                            'printf "%s %s" "$AGENT_VERSION" "$AGENT_VERSION_DISPLAY"')
-        self.assertEqual(dpkg, '7-75-0 7.75.0')
-        self.assertEqual(rpm, '7-76-1 7.76.1')
+    def test_latest_agent_lookup_rejects_untrusted_or_prerelease_url(self):
+        for url in ['https://github.com/DataDog/datadog-agent/releases/tag/7.84.1-rc.1',
+                    'https://other.example/releases/tag/7.84.1',
+                    'https://github.com/DataDog/datadog-agent/releases/latest']:
+            output = self.run_code(f"curl() {{ echo '{url}'; }}; detect_agent_version; "
+                'printf "%s|%s|%s" "$AGENT_VERSION" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION_DETAIL"')
+            self.assertTrue(output.startswith('|none|Latest release lookup returned no stable'), output)
 
-    def test_agent_version_detection_order_and_overrides(self):
-        output = self.run_code("have() { [[ $1 == dpkg || $1 == timeout ]]; }; "
-            "timeout() { echo 'Version: 1:7.75.0-1'; }; detect_agent_version; "
-            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
-        self.assertEqual(output, 'dpkg 7-75-0')
-        output = self.run_code("have() { [[ $1 == rpm || $1 == timeout ]]; }; "
-            "timeout() { echo 'datadog-agent-7.76.1-1.x86_64'; }; detect_agent_version; "
-            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
-        self.assertEqual(output, 'rpm 7-76-1')
+    def test_latest_agent_lookup_error_does_not_accept_partial_output(self):
+        output = self.run_code("curl() { echo 'https://github.com/DataDog/datadog-agent/releases/tag/7.84.1'; return 28; }; "
+            'detect_agent_version; printf "%s|%s" "$AGENT_VERSION" "$AGENT_VERSION_DETAIL"')
+        self.assertTrue(output.startswith('|Latest release lookup failed (curl exit 28)'), output)
+
+    def test_agent_version_overrides_skip_latest_lookup(self):
         output = self.run_code("CLI_AGENT_VERSION=7.77.0; DD_PREFLIGHT_AGENT_VERSION=7.75.0; "
-            "have() { return 1; }; detect_agent_version; "
+            "curl() { echo UNEXPECTED_LOOKUP; return 99; }; detect_agent_version; "
             'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
         self.assertEqual(output, 'flag 7-77-0')
+        output = self.run_code("DD_PREFLIGHT_AGENT_VERSION=7.75.0; "
+            "curl() { echo UNEXPECTED_LOOKUP; return 99; }; detect_agent_version; "
+            'printf "%s %s" "$AGENT_VERSION_SOURCE" "$AGENT_VERSION"')
+        self.assertEqual(output, 'environment 7-75-0')
+
+    def test_header_fields_have_separate_lines_at_wide_and_narrow_widths(self):
+        for width in [80, 50]:
+            output = self.run_code(f'TERMINAL_WIDTH={width}; '
+                "AGENT_VERSION_DISPLAY=7.84.1; AGENT_VERSION_SOURCE=latest-release; "
+                "terminal_intro 'bash curl getent dig nslookup openssl timeout nc' ''")
+            lines = output.splitlines()
+            self.assertEqual(lines[0], 'Proxy: none')
+            self.assertTrue(lines[1].startswith('  Tools: bash curl'))
+            self.assertIn('  Scope: all destinations', lines)
+            self.assertIn('  Agent: 7.84.1 (latest-release)', lines)
+            self.assertLessEqual(max(map(len, lines)), width)
+            self.assertFalse(any('Proxy:' in line and 'Tools:' in line for line in lines))
 
     def test_tls_sni_verification(self):
         code = r'''
@@ -531,6 +554,15 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
 
     def write_command(self, name, body):
         target = self.bin / name
+        # Keep unrelated network-probe fixtures offline and independent of
+        # release discovery. Tests for lookup failure provide their own branch.
+        if name == 'curl' and 'releases/latest' not in body:
+            body = r'''
+if [[ ${*: -1} == https://github.com/DataDog/datadog-agent/releases/latest ]]; then
+    printf 'https://github.com/DataDog/datadog-agent/releases/tag/7.84.1'
+    exit 0
+fi
+''' + body
         target.write_text('#!/usr/bin/env bash\n' + body + '\n')
         target.chmod(0o700)
 
@@ -638,12 +670,36 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         (self.root / 'config/endpoints.conf').write_text(
             '# last_verified_against_datadog_docs=2026-09-29\n'
             'metrics|agent|Metrics|{version}-app.agent.{site}|443|https|all|version|required|all|/|-|https://example.com/docs\n')
-        for command in ('datadog-agent', 'dpkg', 'rpm'):
-            self.write_command(command, 'exit 1')
+        self.write_command('curl', r'''
+[[ ${*: -1} != https://github.com/DataDog/datadog-agent/releases/latest ]] || exit 28
+exit 99
+''')
         result, report = self.scan(1)
         self.assertEqual(report['endpoints'][0]['classification'], 'NOT DIRECTLY TESTABLE')
         self.assertIn('Agent: not determined', result.stdout)
+        self.assertIn('Latest release lookup failed (curl exit 28)', result.stdout)
+        self.assertEqual(report['metadata']['agent_version_source'], 'none')
+        self.assertIn('curl exit 28', report['metadata']['agent_version_detail'])
+        self.assertIn('curl exit 28', report['endpoints'][0]['notes'])
         self.assertNotIn('7-75-0-app', (self.root / 'calls').read_text() if (self.root / 'calls').exists() else '')
+
+    def test_latest_release_probes_both_agent_hosts_and_keeps_wildcard_review(self):
+        (self.root / 'config/endpoints.conf').write_text(
+            '# last_verified_against_datadog_docs=2026-09-29\n'
+            'wildcard|agent|Allowlist|*.agent.{site}|443|https|all|wildcard|required|all|/|-|https://example.com/docs\n'
+            'metrics|agent|Metrics|{version}-app.agent.{site}|443|https|all|version|required|all|/|-|https://example.com/docs\n'
+            'flare|agent|Flare|{version}-flare.agent.{site}|443|https|all|version|informational|all|/|-|https://example.com/docs\n')
+        result, report = self.scan(1)
+        self.assertEqual(report['metadata']['agent_version'], '7-84-1')
+        self.assertEqual(report['metadata']['agent_version_source'], 'latest-release')
+        self.assertEqual([endpoint['hostname'] for endpoint in report['endpoints']], [
+            '*.agent.datadoghq.com', '7-84-1-app.agent.datadoghq.com', '7-84-1-flare.agent.datadoghq.com'])
+        self.assertEqual([endpoint['classification'] for endpoint in report['endpoints']],
+                         ['ALLOWLIST REQUIREMENT', 'DIRECT TEST', 'DIRECT TEST'])
+        self.assertIn('review firewall rule.', result.stdout)
+        self.assertIn('concrete hostnames are probed separately', report['endpoints'][0]['notes'])
+        self.assertEqual(report['direct_endpoint_counts'], {'pass': 2, 'warn': 0, 'fail': 0})
+        self.assertNotIn('*.agent', (self.root / 'calls').read_text())
 
     def test_summary_lists_only_categories_needing_attention(self):
         self.manifest('wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')

@@ -8,8 +8,10 @@
   ────────────────────────────────────────────────────────────
 [0m  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
 
-  Proxy: none · Tools: curl dig nslookup openssl nc · Scope: all destinations
-  Agent: not determined
+  Proxy: none
+  Tools: curl dig nslookup openssl nc
+  Scope: all destinations
+  Agent: 7.84.1 (latest-release)
 
   STATUS DESTINATION                                      DNS  TCP  TLS HTTP
 [2K
@@ -19,18 +21,16 @@
 [2K
  [1mAGENT[0m [2m────────────────────────────────────────────────────────────────────────[0m
 [2K[2m- Checking 2/15 *.agent.datadoghq.com[0m[2K  [36mREVIEW[0m *.agent.datadoghq.com                           [2m  --   --   -- --[0m
-[2m       ↳ Wildcard allowlist; not tested.[0m
-[2K[2m\ Checking 3/15 {version}-app.agent.datadoghq.com[0m[2K  [36mREVIEW[0m {version}-app.agent.datadoghq.com               [2m  --   --   -- --[0m
-[2m       ↳ Agent version not determined; not tested.[0m
-[2K[2m| Checking 4/15 {version}-flare.agent.datadoghq.com[0m[2K  [36mREVIEW[0m {version}-flare.agent.datadoghq.com             [2m  --   --   -- --[0m
-[2m       ↳ Agent version not determined; not tested.[0m
+[2m       ↳ Allowlist pattern, not a host; review firewall rule.[0m
+[2K[2m\ Checking 3/15 7-84-1-app.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-app.agent.datadoghq.com                  [2m  ok   ok   ok 403[0m
+[2K[2m| Checking 4/15 7-84-1-flare.agent.datadoghq.com[0m[2K  [32mPASS  [0m 7-84-1-flare.agent.datadoghq.com                [2m  ok   ok   ok 403[0m
 [2K
  [1mRUM (VM-side only)[0m [2m───────────────────────────────────────────────────────────[0m
 [2K[2m/ Checking 5/15 browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
 [2K[2m- Checking 6/15 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [33mWARN  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
 [2m       ↳ Reachable, but response contains denial/filter wording; see TXT report.[0m
 [2K[2m\ Checking 7/15 *.browser-intake-datadoghq.com[0m[2K  [36mREVIEW[0m *.browser-intake-datadoghq.com                  [2m  --   --   -- --[0m
-[2m       ↳ Wildcard allowlist; not tested.[0m
+[2m       ↳ Allowlist pattern, not a host; review firewall rule.[0m
 [2K
  [1mCONTAINER REGISTRIES[0m [2m─────────────────────────────────────────────────────────[0m
 [2K[2m| Checking 8/15 registry.datadoghq.com[0m[2K  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
@@ -49,11 +49,11 @@
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  [33m⚠  READY WITH WARNINGS[0m                                                      │
 │                                                                              │
-│  ✔ 8 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 5 review                              │
+│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 3 review                             │
 │                                                                              │
 │  By category                                                                 │
 │    installation: 2 pass, 0 warn, 0 fail, 0 review                            │
-│    agent: 0 pass, 0 warn, 0 fail, 3 review                                   │
+│    agent: 2 pass, 0 warn, 0 fail, 1 review                                   │
 │    rum: 1 pass, 1 warn, 0 fail, 1 review                                     │
 │    container registries: 5 pass, 1 warn, 0 fail, 0 review                    │
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
@@ -62,7 +62,7 @@
 │  [33m  ⚠ rum: 1 denial/filter response(s); see TXT report[0m                        │
 │  [33m  ⚠ container registries: 1 unexpected redirect(s); inspect proxy[0m           │
 │                                                                              │
-│  Manual review: 2 wildcard allowlist; 3 other requirement(s)                 │
+│  Manual review: 2 wildcard allowlist; 1 other requirement(s)                 │
 │    - UDP telemetry (UDP/8125)                                                │
 │  RUM: VM-side sanity only; end-user browser connectivity untested            │
 ╰──────────────────────────────────────────────────────────────────────────────╯

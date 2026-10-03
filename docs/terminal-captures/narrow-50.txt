@@ -2,9 +2,10 @@
  ────────────────────────────────────────────────
  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datado…
 
-  Proxy: none · Tools: curl dig nslookup openssl
-  nc · Scope: all destinations
-  Agent: not determined
+  Proxy: none
+  Tools: curl dig nslookup openssl nc
+  Scope: all destinations
+  Agent: 7.84.1 (latest-release)
 
   STATUS DESTINATION
         DNS  TCP  TLS  HTTP
@@ -18,13 +19,12 @@
  AGENT ──────────────────────────────────────────
   REVIEW *.agent.datadoghq.com
         DNS --  TCP --  TLS --  HTTP --
-       ↳ Wildcard allowlist; not tested.
-  REVIEW {version}-app.agent.datadoghq.com
-        DNS --  TCP --  TLS --  HTTP --
-       ↳ Agent version not determined; not tested.
-  REVIEW {version}-flare.agent.datadoghq.com
-        DNS --  TCP --  TLS --  HTTP --
-       ↳ Agent version not determined; not tested.
+       ↳ Allowlist pattern, not a host;
+         review firewall rule.
+  PASS   7-84-1-app.agent.datadoghq.com
+        DNS ok  TCP ok  TLS ok  HTTP 403
+  PASS   7-84-1-flare.agent.datadoghq.com
+        DNS ok  TCP ok  TLS ok  HTTP 403
 
  RUM (VM-side only) ─────────────────────────────
   PASS   browser-intake-datadoghq.com
@@ -36,7 +36,8 @@
          denial/filter wording; see TXT report.
   REVIEW *.browser-intake-datadoghq.com
         DNS --  TCP --  TLS --  HTTP --
-       ↳ Wildcard allowlist; not tested.
+       ↳ Allowlist pattern, not a host;
+         review firewall rule.
 
  CONTAINER REGISTRIES ───────────────────────────
   PASS   registry.datadoghq.com
@@ -64,13 +65,13 @@
 ╭─ SUMMARY ──────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                        │
 │                                                │
-│  ✔ 8 pass   ⚠ 2 warn                           │
-│  ✖ 0 fail   ◌ 5 review                         │
+│  ✔ 10 pass   ⚠ 2 warn                          │
+│  ✖ 0 fail   ◌ 3 review                         │
 │                                                │
 │  By category                                   │
 │    installation: 2 pass, 0 warn, 0 fail, 0     │
 │      review                                    │
-│    agent: 0 pass, 0 warn, 0 fail, 3 review     │
+│    agent: 2 pass, 0 warn, 0 fail, 1 review     │
 │    rum: 1 pass, 1 warn, 0 fail, 1 review       │
 │    container registries: 5 pass, 1 warn, 0     │
 │      fail, 0 review                            │
@@ -83,7 +84,7 @@
 │    ⚠ container registries: 1 unexpected        │
 │      redirect(s); inspect proxy                │
 │                                                │
-│  Manual review: 2 wildcard allowlist; 3 other  │
+│  Manual review: 2 wildcard allowlist; 1 other  │
 │    requirement(s)                              │
 │    - UDP telemetry (UDP/8125)                  │
 │  RUM: VM-side sanity only; end-user browser    │

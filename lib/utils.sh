@@ -132,18 +132,9 @@ set_agent_version() {
     AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
     AGENT_VERSION_DISPLAY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
 }
-agent_version_from_output() {
-    local output=$1 source=$2 version=''
-    case $source in
-        command) [[ $output =~ Agent[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)([[:space:]]|$) ]] && version=${BASH_REMATCH[1]};;
-        dpkg) [[ $output =~ Version:[[:space:]]*([0-9]+:)?([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[2]};;
-        rpm) [[ $output =~ datadog-agent-([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[1]};;
-    esac
-    [[ -n $version ]] && set_agent_version "$version"
-}
 detect_agent_version() {
-    local output
-    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'
+    local release_url rc
+    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'; AGENT_VERSION_DETAIL=''
     if [[ -n ${CLI_AGENT_VERSION-} ]]; then
         set_agent_version "$CLI_AGENT_VERSION" || { error 'Invalid --agent-version; use X.Y.Z'; return 1; }
         AGENT_VERSION_SOURCE=flag; return 0
@@ -152,20 +143,20 @@ detect_agent_version() {
         set_agent_version "$DD_PREFLIGHT_AGENT_VERSION" || { error 'Invalid DD_PREFLIGHT_AGENT_VERSION; use X.Y.Z'; return 1; }
         AGENT_VERSION_SOURCE=environment; return 0
     fi
-    if have datadog-agent; then
-        if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
-        else output=$(datadog-agent version 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE='command'; return 0; fi
-    fi
-    if have dpkg; then
-        if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''
-        else output=$(dpkg -s datadog-agent 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" dpkg; then AGENT_VERSION_SOURCE=dpkg; return 0; fi
-    fi
-    if have rpm; then
-        if have timeout; then output=$(timeout -k 1 3 rpm -q datadog-agent 2>/dev/null) || output=''
-        else output=$(rpm -q datadog-agent 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" rpm; then AGENT_VERSION_SOURCE=rpm; return 0; fi
+    # GitHub's latest-release redirect selects a stable release without parsing
+    # a changelog or requiring jq/Python. Only accept an exact official tag URL.
+    release_url=$(SSLKEYLOGFILE= curl --disable --silent --show-error --fail --head --location \
+        --proto '=https' --proto-redir '=https' --max-redirs 3 \
+        --connect-timeout 5 --max-time 12 --output /dev/null --write-out '%{url_effective}' \
+        'https://github.com/DataDog/datadog-agent/releases/latest' 2>/dev/null)
+    rc=$?
+    if ((rc!=0)); then
+        AGENT_VERSION_DETAIL="Latest release lookup failed (curl exit $rc); use --agent-version X.Y.Z."
+    elif [[ $release_url =~ ^https://github\.com/DataDog/datadog-agent/releases/tag/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        set_agent_version "${BASH_REMATCH[1]}" || return 1
+        AGENT_VERSION_SOURCE=latest-release
+    else
+        AGENT_VERSION_DETAIL='Latest release lookup returned no stable X.Y.Z tag; use --agent-version X.Y.Z.'
     fi
     return 0
 }

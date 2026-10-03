@@ -13,9 +13,10 @@ declare -A E=() SITE_LABELS=([us1]=US1) SITE_DOMAINS=([us1]=datadoghq.com)
 declare -A TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=() TERMINAL_GROUP_HOSTS=() TERMINAL_GROUP_HOST_SEEN=()
 declare -a TERMINAL_ORDER=() TERMINAL_NOTE_KEY=() CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_OTHER_REQUIREMENTS=()
 SITE=us1 MACHINE=eminerba-lab OS_NAME='Ubuntu 22.04.5 LTS'
-AGENT_VERSION='' PROXY_PRESENT=0 TERMINAL_TTY=$1 TERMINAL_WIDTH=$COLUMNS
+AGENT_VERSION='7-84-1' AGENT_VERSION_DISPLAY='7.84.1' AGENT_VERSION_SOURCE=latest-release
+PROXY_PRESENT=0 TERMINAL_TTY=$1 TERMINAL_WIDTH=$COLUMNS
 TERMINAL_PROGRESS_TOTAL=15 TERMINAL_PROGRESS_DONE=0 TERMINAL_PROGRESS_TICK=0
-OVERALL='READY WITH WARNINGS' DIRECT_PASS=8 DIRECT_WARN=2 DIRECT_FAIL=0
+OVERALL='READY WITH WARNINGS' DIRECT_PASS=10 DIRECT_WARN=2 DIRECT_FAIL=0
 REPORT_BASE='/home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkFO'
 terminal_banner
 terminal_intro 'curl dig nslookup openssl nc' ''
@@ -56,10 +57,9 @@ add_row installation install.datadoghq.com PASS 'DIRECT TEST' 200 ''
 add_row installation apt.datadoghq.com PASS 'DIRECT TEST' 206 ''
 category=agent
 add_row agent '*.agent.datadoghq.com' WARN 'ALLOWLIST REQUIREMENT' '' ''
-add_row agent '{version}-app.agent.datadoghq.com' WARN 'NOT DIRECTLY TESTABLE' '' ''
-add_row agent '{version}-flare.agent.datadoghq.com' WARN 'NOT DIRECTLY TESTABLE' '' ''
+add_row agent '7-84-1-app.agent.datadoghq.com' PASS 'DIRECT TEST' 403 ''
+add_row agent '7-84-1-flare.agent.datadoghq.com' PASS 'DIRECT TEST' 403 ''
 ALLOWLIST+=('*.agent.datadoghq.com')
-UNTESTED+=('{version}-app.agent.datadoghq.com' '{version}-flare.agent.datadoghq.com')
 category=rum
 add_row rum browser-intake-datadoghq.com PASS 'SERVER-SIDE SANITY CHECK ONLY' 403 ''
 add_row rum sdk-configuration.browser-intake-datadoghq.com WARN 'SERVER-SIDE SANITY CHECK ONLY' 403 denial

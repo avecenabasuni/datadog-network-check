@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=2f3a4d6b12349e22f6123bc4b0efee08462e8245c00285570750006e325e9e5b
+# source_sha256=17c31c662b6da06fc42f41dabfe191a40bfbead2551f307fb07e595368ac7dce
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -157,7 +157,7 @@ yum|installation|yum distribution|yum.datadoghq.com|443|https|linux|full|require
 keys|installation|keys distribution|keys.datadoghq.com|443|https|linux|full|required|all|/|Domain reachability only; no packages or scripts downloaded|https://docs.datadoghq.com/agent/configuration/network/
 windows-agent|installation|windows-agent distribution|windows-agent.datadoghq.com|443|https|windows|full|required|all|/|Domain reachability only; no packages or scripts downloaded|https://docs.datadoghq.com/agent/configuration/network/
 agent-wildcard|agent|Agent metrics and flare allowlist|*.agent.{site}|443|https|all|wildcard|required|all|/|ALLOWLIST REQUIREMENT; never resolve a literal wildcard|https://docs.datadoghq.com/agent/configuration/network/
-agent-metrics|agent|Version-specific metrics intake|{version}-app.agent.{site}|443|https|all|version|required|all|/|Official Agent version naming convention; requires detected installed stable Agent version|https://docs.datadoghq.com/agent/configuration/network/
+agent-metrics|agent|Version-specific metrics intake|{version}-app.agent.{site}|443|https|all|version|required|all|/|Official Agent version naming convention; latest stable release by default or explicit version override|https://docs.datadoghq.com/agent/configuration/network/
 agent-flare|agent|Version-specific flare destination|{version}-flare.agent.{site}|443|https|all|version|informational|all|/|Destination connectivity only; no flare created or uploaded|https://docs.datadoghq.com/agent/configuration/network/
 api|api|Agent API|api.{site}|443|https|all|full|required|all|/|-|https://docs.datadoghq.com/agent/configuration/network/
 legacy-api|api|Legacy Agent API|app.{site}|443|https|all|full|informational|all|/|Only Agent older than 6.18/7.18; documented legacy hostname|https://docs.datadoghq.com/agent/configuration/network/
@@ -218,18 +218,9 @@ set_agent_version() {
     AGENT_VERSION="${BASH_REMATCH[1]}-${BASH_REMATCH[2]}-${BASH_REMATCH[3]}"
     AGENT_VERSION_DISPLAY="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
 }
-agent_version_from_output() {
-    local output=$1 source=$2 version=''
-    case $source in
-        command) [[ $output =~ Agent[[:space:]]+([0-9]+\.[0-9]+\.[0-9]+)([[:space:]]|$) ]] && version=${BASH_REMATCH[1]};;
-        dpkg) [[ $output =~ Version:[[:space:]]*([0-9]+:)?([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[2]};;
-        rpm) [[ $output =~ datadog-agent-([0-9]+\.[0-9]+\.[0-9]+) ]] && version=${BASH_REMATCH[1]};;
-    esac
-    [[ -n $version ]] && set_agent_version "$version"
-}
 detect_agent_version() {
-    local output
-    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'
+    local release_url rc
+    AGENT_VERSION=''; AGENT_VERSION_DISPLAY=''; AGENT_VERSION_SOURCE='none'; AGENT_VERSION_DETAIL=''
     if [[ -n ${CLI_AGENT_VERSION-} ]]; then
         set_agent_version "$CLI_AGENT_VERSION" || { error 'Invalid --agent-version; use X.Y.Z'; return 1; }
         AGENT_VERSION_SOURCE=flag; return 0
@@ -238,20 +229,20 @@ detect_agent_version() {
         set_agent_version "$DD_PREFLIGHT_AGENT_VERSION" || { error 'Invalid DD_PREFLIGHT_AGENT_VERSION; use X.Y.Z'; return 1; }
         AGENT_VERSION_SOURCE=environment; return 0
     fi
-    if have datadog-agent; then
-        if have timeout; then output=$(timeout -k 1 3 datadog-agent version 2>/dev/null) || output=''
-        else output=$(datadog-agent version 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" command; then AGENT_VERSION_SOURCE='command'; return 0; fi
-    fi
-    if have dpkg; then
-        if have timeout; then output=$(timeout -k 1 3 dpkg -s datadog-agent 2>/dev/null) || output=''
-        else output=$(dpkg -s datadog-agent 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" dpkg; then AGENT_VERSION_SOURCE=dpkg; return 0; fi
-    fi
-    if have rpm; then
-        if have timeout; then output=$(timeout -k 1 3 rpm -q datadog-agent 2>/dev/null) || output=''
-        else output=$(rpm -q datadog-agent 2>/dev/null) || output=''; fi
-        if agent_version_from_output "$output" rpm; then AGENT_VERSION_SOURCE=rpm; return 0; fi
+    # GitHub's latest-release redirect selects a stable release without parsing
+    # a changelog or requiring jq/Python. Only accept an exact official tag URL.
+    release_url=$(SSLKEYLOGFILE= curl --disable --silent --show-error --fail --head --location \
+        --proto '=https' --proto-redir '=https' --max-redirs 3 \
+        --connect-timeout 5 --max-time 12 --output /dev/null --write-out '%{url_effective}' \
+        'https://github.com/DataDog/datadog-agent/releases/latest' 2>/dev/null)
+    rc=$?
+    if ((rc!=0)); then
+        AGENT_VERSION_DETAIL="Latest release lookup failed (curl exit $rc); use --agent-version X.Y.Z."
+    elif [[ $release_url =~ ^https://github\.com/DataDog/datadog-agent/releases/tag/([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
+        set_agent_version "${BASH_REMATCH[1]}" || return 1
+        AGENT_VERSION_SOURCE=latest-release
+    else
+        AGENT_VERSION_DETAIL='Latest release lookup returned no stable X.Y.Z tag; use --agent-version X.Y.Z.'
     fi
     return 0
 }
@@ -884,13 +875,15 @@ terminal_category_start() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    local proxy='none' separator=' | '
-    terminal_utf8 && separator=' · '
+    local proxy='none'
     ((PROXY_PRESENT)) && proxy='configured (values withheld)'
     printf '\n'
-    terminal_wrap "Proxy: $proxy${separator}Tools: ${available:-none}${separator}Scope: all destinations" '  ' '  '
+    terminal_wrap "Proxy: $proxy" '  ' '  '
+    terminal_wrap "Tools: ${available:-none}" '  ' '         '
     [[ -z $unavailable ]] || terminal_wrap "Unavailable tools: $unavailable" '  ' '  '
-    printf '  Agent: %s\n' "${AGENT_VERSION_DISPLAY:-not determined}"
+    printf '  Scope: all destinations\n'
+    terminal_wrap "Agent: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE:-none})" '  ' '         '
+    [[ -z ${AGENT_VERSION_DETAIL-} ]] || terminal_wrap "$AGENT_VERSION_DETAIL" '  ' '  '
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -941,7 +934,7 @@ terminal_endpoint() {
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     terminal_category_start
     if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' || ${E[classification]} == 'NOT DIRECTLY TESTABLE' ]]; then
-        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Wildcard allowlist; not tested.'
+        if [[ ${E[classification]} == 'ALLOWLIST REQUIREMENT' ]]; then hint='Allowlist pattern, not a host; review firewall rule.'
         elif [[ ${E[test_type]} == version ]]; then hint='Agent version not determined; not tested.'
         else hint='Manual target; not tested.'; fi
         terminal_row REVIEW "${E[hostname]}" '--' '--' '--' '--'
@@ -1294,6 +1287,8 @@ report_finish() {
         printf ',"os":'; json_string "$OS_NAME"
         printf ',"last_verified_against_datadog_docs":'; json_string "$VERIFIED"
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
+        printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
+        printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"
         printf ',"parameter":'; json_string "${SITE_DOMAINS[$SITE]}"; printf '},"categories":{'
@@ -1333,7 +1328,7 @@ main() {
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and local Agent detection.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan using the latest stable Agent release.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -1387,6 +1382,7 @@ main() {
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     detect_agent_version || return 3
     emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
+    [[ -z $AGENT_VERSION_DETAIL ]] || emit "$AGENT_VERSION_DETAIL"
     emit 'Sequential full scan; bounded retries on transient failures. Slow endpoints may take over one minute.'
     terminal_intro "${available_tools# }" "${unavailable_tools# }"
     declare -gA E=() CATEGORY_STATUS=()
@@ -1411,6 +1407,11 @@ main() {
             E[classification]='NOT DIRECTLY TESTABLE'
             [[ $test_type != wildcard ]] || E[classification]='ALLOWLIST REQUIREMENT'
             for field in dns cname tcp tls http; do E[$field]='NOT DIRECTLY TESTABLE'; E[${field}_detail]='Manual review required; no network probe issued'; done
+            if [[ $test_type == wildcard ]]; then
+                add_note 'Allowlist pattern, not a connection target; concrete hostnames are probed separately; review firewall wildcard coverage'
+            elif [[ $test_type == version ]]; then
+                add_note "$AGENT_VERSION_DETAIL"
+            fi
         else
             if [[ $test_type == version ]]; then host=${host//\{version\}/$AGENT_VERSION}; E[hostname]=$host; fi
             terminal_category_start
