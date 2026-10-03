@@ -25,8 +25,7 @@
 [2K
  [1mRUM (VM-side only)[0m [2m───────────────────────────────────────────────────────────[0m
 [2K[2m| Checking 4/13 browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m browser-intake-datadoghq.com                    [2m  ok   ok   ok 403[0m
-[2K[2m/ Checking 5/13 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [33mWARN  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
-[2m       ↳ Reachable, but response contains denial/filter wording; see TXT report.[0m
+[2K[2m/ Checking 5/13 sdk-configuration.browser-intake-datadoghq.com[0m[2K  [32mPASS  [0m sdk-configuration.browser-intake-datadoghq.com  [2m  ok   ok   ok 403[0m
 [2K
  [1mCONTAINER REGISTRIES[0m [2m─────────────────────────────────────────────────────────[0m
 [2K[2m- Checking 6/13 registry.datadoghq.com[0m[2K  [32mPASS  [0m registry.datadoghq.com                          [2m  ok   ok   ok 302>200[0m
@@ -45,17 +44,16 @@
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  [33m⚠  READY WITH WARNINGS[0m                                                      │
 │                                                                              │
-│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 1 review                             │
+│  ✔ 11 pass    ⚠ 1 warn    ✖ 0 fail    ◌ 1 review                             │
 │                                                                              │
 │  By category                                                                 │
 │    installation: 2 pass, 0 warn, 0 fail, 0 review                            │
 │    agent: 2 pass, 0 warn, 0 fail, 0 review                                   │
-│    rum: 1 pass, 1 warn, 0 fail, 0 review                                     │
+│    rum: 2 pass, 0 warn, 0 fail, 0 review                                     │
 │    container registries: 5 pass, 1 warn, 0 fail, 0 review                    │
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
 │  Needs attention                                                             │
-│  [33m  ⚠ rum: 1 denial/filter response(s); see TXT report[0m                        │
 │  [33m  ⚠ container registries: 1 unexpected redirect(s); inspect proxy[0m           │
 │                                                                              │
 │  Manual review: 1 other requirement(s)                                       │

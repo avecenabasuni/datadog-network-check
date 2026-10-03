@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=1faa740f765dd5f3193b1d087e9c92ea1511c8a326a9d81b3a6b88b2c7128ce3
+# source_sha256=132353f76637f6bf1e3fff60e6cd797c22c765fb61a139a99bd0fc2d6cd29b49
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -558,8 +558,11 @@ http_attempt() {
     if [[ -n $vendor ]] && ((generic)); then
         [[ ${E[http]} == FAIL ]] || E[http]=WARN
         add_note "POSSIBLE SECURITY FILTERING: $vendor and denial/filter signature detected; not definitive proof"
-    elif ((generic)) && [[ ${E[http]} != FAIL ]]; then
-        E[http]=WARN; add_note 'Denial/filter wording observed; may be an ordinary application response; filtering not established'
+    elif ((generic)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]]; then
+        # S3/CloudFront and application endpoints also return Access Denied.
+        # Generic wording alone cannot identify a firewall/proxy block page.
+        # Keep transport, service/proxy errors, and retry warnings independent.
+        add_note 'Generic denial wording observed; insufficient evidence of network filtering'
     fi
     if [[ ${E[tls]} == SKIPPED ]]; then add_note "Detailed TLS inspection SKIPPED; curl TLS fallback ${E[curl_tls]}"; fi
 }
@@ -953,10 +956,6 @@ terminal_endpoint() {
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
         if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist ]]; then return 0; fi
     fi
-    if [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
-        terminal_note 'Reachable, but response contains denial/filter wording; see TXT report.'
-        return 0
-    fi
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
         terminal_note 'Possible security filtering; see TXT report.'
         return 0
@@ -1069,8 +1068,8 @@ terminal_summary_reason() {
     fi
     for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
         [[ ${TERMINAL_ORDER[index]} == "$category" && ${TERMINAL_SNAP["$index:impact"]-} == WARN ]] || continue
-        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Denial/filter wording observed'* ]]; then
-            printf '%s denial/filter response(s); see TXT report' "$warned"
+        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'POSSIBLE SECURITY FILTERING'* ]]; then
+            printf '%s possible security-filter response(s); see TXT report' "$warned"
             return
         fi
         if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Unexpected redirect target'* ]]; then

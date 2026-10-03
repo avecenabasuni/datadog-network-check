@@ -16,7 +16,7 @@ SITE=us1 MACHINE=eminerba-lab OS_NAME='Ubuntu 22.04.5 LTS'
 AGENT_VERSION='7-84-1' AGENT_VERSION_DISPLAY='7.84.1' AGENT_VERSION_SOURCE=latest-release
 PROXY_PRESENT=0 TERMINAL_TTY=$1 TERMINAL_WIDTH=$COLUMNS
 TERMINAL_PROGRESS_TOTAL=13 TERMINAL_PROGRESS_DONE=0 TERMINAL_PROGRESS_TICK=0
-OVERALL='READY WITH WARNINGS' DIRECT_PASS=10 DIRECT_WARN=2 DIRECT_FAIL=0
+OVERALL='READY WITH WARNINGS' DIRECT_PASS=11 DIRECT_WARN=1 DIRECT_FAIL=0
 REPORT_BASE='/home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkFO'
 terminal_banner
 terminal_intro 'curl dig nslookup openssl nc' ''
@@ -43,8 +43,7 @@ add_row() {
         E[redirect_http_detail]='Reached redirect'
         E[notes]='Unexpected redirect target; possible proxy/captive portal block page.'
     elif [[ $note == denial ]]; then
-        E[http]=WARN E[notes]='Denial/filter wording observed'
-        E[http_detail]='Response contains denial/filter wording'
+        E[notes]='Generic denial wording observed; insufficient evidence of network filtering'
     fi
     terminal_capture_endpoint
     terminal_progress_clear
@@ -61,7 +60,7 @@ add_row agent '7-84-1-flare.agent.datadoghq.com' PASS 'DIRECT TEST' 403 ''
 ALLOWLIST+=('*.agent.datadoghq.com')
 category=rum
 add_row rum browser-intake-datadoghq.com PASS 'SERVER-SIDE SANITY CHECK ONLY' 403 ''
-add_row rum sdk-configuration.browser-intake-datadoghq.com WARN 'SERVER-SIDE SANITY CHECK ONLY' 403 denial
+add_row rum sdk-configuration.browser-intake-datadoghq.com PASS 'SERVER-SIDE SANITY CHECK ONLY' 403 denial
 ALLOWLIST+=('*.browser-intake-datadoghq.com')
 category=container_registries
 add_row container_registries registry.datadoghq.com PASS 'DIRECT TEST' 302 expected docs.datadoghq.com

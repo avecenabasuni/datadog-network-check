@@ -116,7 +116,7 @@ The boxed summary gives the readiness verdict, direct-check counts, per-category
 
 +- SUMMARY --------------------------------------------------------------------+
 |  [!!]  READY WITH WARNINGS                                                   |
-|  [OK] 10 pass   [!!] 2 warn    [XX] 0 fail    [??] 1 review                  |
+|  [OK] 11 pass   [!!] 1 warn    [XX] 0 fail    [??] 1 review                  |
 |  By category                                                                 |
 |    container registries: 5 pass, 1 warn, 0 fail, 0 review                    |
 |  Needs attention                                                             |
@@ -151,13 +151,15 @@ Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY T
 | Verified TLS session negotiated, then OpenSSL process times out | WARN; process timeout is not labeled handshake failure |
 | TLS/DNS/TCP failure, reset, timeout, no HTTP response | FAIL for the affected stage |
 | Vendor plus explicit denial/filter wording | WARN: POSSIBLE SECURITY FILTERING; not definitive proof |
-| Generic “access denied”/“blocked” wording | WARN; may be an ordinary application rejection |
+| Generic “access denied”/“blocked” wording | Report note only; does not change verified HTTPS connectivity status |
 | Optional detailed test unavailable | SKIPPED; coverage warning |
 | Version/port requirement without concrete target | NOT DIRECTLY TESTABLE; coverage warning |
 | Documented wildcard firewall pattern | TXT/JSON documentation note; no test result or readiness impact |
 | Windows-only, excluded traffic, or site excluded by manifest | NOT APPLICABLE; neutral in aggregation |
 
 A body-size cap is a deliberate exception: if TLS was verified and HTTP headers arrived, curl exit 63 does not make network readiness warn or fail. Curl metadata is captured separately from the bounded response sample, so large bodies cannot discard the HTTP status or actual exit code. On older curl versions, closing the sample pipe can produce exit 23; it is accepted only when the independent response-sample byte count confirms the limit was reached. The cap remains visible in the HTTP detail and notes. Other write errors and transport failures remain failures even if an earlier response arrived. Missing diagnostic metadata is reported as SKIPPED, never as a fabricated curl exit code or a proven network blocker. HTTP reachability cannot conclusively identify a transparent intermediary that presents a trusted certificate; block-page detection is only a conservative heuristic.
+
+Generic denial wording alone is recorded without raising WARN. A verified, completed `403 Access Denied` response from the RUM SDK configuration endpoint demonstrates HTTPS reachability, but does not validate retrieval of remote settings. [CloudFront documents](https://docs.aws.amazon.com/AmazonCloudFront/latest/DeveloperGuide/http-403-permission-denied.html) that S3 permissions, incorrect paths, missing objects, and WAF rules can all cause 403 responses; their source cannot be established from that status or generic denial text alone. [curl documents](https://github.com/curl/curl/blob/master/docs/cmdline-opts/fail.md) that HTTP error responses do not fail the transfer by default. The checker still warns for vendor-plus-denial signatures, HTTP 407/5xx, failed redirects, and recovery on retry; transport and certificate failures retain their failure status. It does not use AmazonS3/CloudFront headers as an exception to these rules.
 
 An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unverified, then PASS). Its **impact** determines readiness:
 

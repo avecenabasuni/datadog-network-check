@@ -331,10 +331,6 @@ terminal_endpoint() {
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
         if [[ ${TERMINAL_NOTE_KEY[$TERMINAL_CURRENT_INDEX]-} == redirect_allowlist ]]; then return 0; fi
     fi
-    if [[ ${E[notes]} == *'Denial/filter wording observed'* ]]; then
-        terminal_note 'Reachable, but response contains denial/filter wording; see TXT report.'
-        return 0
-    fi
     if [[ ${E[notes]} == *'POSSIBLE SECURITY FILTERING'* ]]; then
         terminal_note 'Possible security filtering; see TXT report.'
         return 0
@@ -447,8 +443,8 @@ terminal_summary_reason() {
     fi
     for ((index=0;index<${#TERMINAL_ORDER[@]};index++)); do
         [[ ${TERMINAL_ORDER[index]} == "$category" && ${TERMINAL_SNAP["$index:impact"]-} == WARN ]] || continue
-        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Denial/filter wording observed'* ]]; then
-            printf '%s denial/filter response(s); see TXT report' "$warned"
+        if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'POSSIBLE SECURITY FILTERING'* ]]; then
+            printf '%s possible security-filter response(s); see TXT report' "$warned"
             return
         fi
         if [[ ${TERMINAL_SNAP["$index:notes"]-} == *'Unexpected redirect target'* ]]; then

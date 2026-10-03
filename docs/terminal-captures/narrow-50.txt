@@ -25,11 +25,9 @@
  RUM (VM-side only) ─────────────────────────────
   PASS   browser-intake-datadoghq.com
         DNS ok  TCP ok  TLS ok  HTTP 403
-  WARN   sdk-configurat…owser-intake-datadoghq.com
+  PASS   sdk-configurat…owser-intake-datadoghq.com
         DNS ok  TCP ok  TLS ok  HTTP 403
  ↳ sdk-configuration.browser-intake-datadoghq.com
-       ↳ Reachable, but response contains
-         denial/filter wording; see TXT report.
 
  CONTAINER REGISTRIES ───────────────────────────
   PASS   registry.datadoghq.com
@@ -57,22 +55,20 @@
 ╭─ SUMMARY ──────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                        │
 │                                                │
-│  ✔ 10 pass   ⚠ 2 warn                          │
+│  ✔ 11 pass   ⚠ 1 warn                          │
 │  ✖ 0 fail   ◌ 1 review                         │
 │                                                │
 │  By category                                   │
 │    installation: 2 pass, 0 warn, 0 fail, 0     │
 │      review                                    │
 │    agent: 2 pass, 0 warn, 0 fail, 0 review     │
-│    rum: 1 pass, 1 warn, 0 fail, 0 review       │
+│    rum: 2 pass, 0 warn, 0 fail, 0 review       │
 │    container registries: 5 pass, 1 warn, 0     │
 │      fail, 0 review                            │
 │    other requirements: 0 pass, 0 warn, 0 fail, │
 │      1 review                                  │
 │                                                │
 │  Needs attention                               │
-│    ⚠ rum: 1 denial/filter response(s); see TXT │
-│      report                                    │
 │    ⚠ container registries: 1 unexpected        │
 │      redirect(s); inspect proxy                │
 │                                                │

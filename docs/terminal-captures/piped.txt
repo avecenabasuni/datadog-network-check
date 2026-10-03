@@ -17,8 +17,7 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
 
  RUM (VM-side only) ───────────────────────────────────────────────────────────
   PASS   browser-intake-datadoghq.com                      ok   ok   ok 403
-  WARN   sdk-configuration.browser-intake-datadoghq.com    ok   ok   ok 403
-       ↳ Reachable, but response contains denial/filter wording; see TXT report.
+  PASS   sdk-configuration.browser-intake-datadoghq.com    ok   ok   ok 403
 
  CONTAINER REGISTRIES ─────────────────────────────────────────────────────────
   PASS   registry.datadoghq.com                            ok   ok   ok 302>200
@@ -37,17 +36,16 @@ DATADOG NETWORK PREFLIGHT  v0.1.4
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                                                      │
 │                                                                              │
-│  ✔ 10 pass    ⚠ 2 warn    ✖ 0 fail    ◌ 1 review                             │
+│  ✔ 11 pass    ⚠ 1 warn    ✖ 0 fail    ◌ 1 review                             │
 │                                                                              │
 │  By category                                                                 │
 │    installation: 2 pass, 0 warn, 0 fail, 0 review                            │
 │    agent: 2 pass, 0 warn, 0 fail, 0 review                                   │
-│    rum: 1 pass, 1 warn, 0 fail, 0 review                                     │
+│    rum: 2 pass, 0 warn, 0 fail, 0 review                                     │
 │    container registries: 5 pass, 1 warn, 0 fail, 0 review                    │
 │    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      │
 │                                                                              │
 │  Needs attention                                                             │
-│    ⚠ rum: 1 denial/filter response(s); see TXT report                        │
 │    ⚠ container registries: 1 unexpected redirect(s); inspect proxy           │
 │                                                                              │
 │  Manual review: 1 other requirement(s)                                       │

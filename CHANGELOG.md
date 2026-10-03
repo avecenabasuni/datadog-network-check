@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Treat generic denial wording such as `Access Denied` as a report note, preserving PASS for verified HTTPS reachability. This removes the false connectivity warning on RUM Remote Configuration S3/CloudFront 403 responses. Vendor-plus-denial signatures, service/proxy errors, retries, and transport/TLS failures retain their existing impact.
 - Show Proxy, Tools, Scope, and Agent on separate terminal lines, including wrapped output on narrow terminals.
 - Default to the latest stable Agent release from the official GitHub release redirect instead of detecting a local installation. Explicit flag/environment version overrides still take precedence and avoid GitHub access.
 - Probe both versioned Agent destinations after successful lookup. Keep them in REVIEW with a reported reason if discovery fails; record version source and lookup detail in JSON metadata.

@@ -495,14 +495,28 @@ http_check example.com; echo "${E[http]} ${E[curl_exit]} ${E[http_status]} ${E[s
         self.assertTrue(output.endswith('OK'), output)
 
     def test_block_page(self):
-        output = self.http(status='200', body='HTTP/1.1 200 OK\r\n\r\nFortiGate: category blocked')
-        self.assertIn('POSSIBLE SECURITY FILTERING', output)
-        self.assertTrue(output.startswith('WARN\nPASS'))
+        for vendor in ['FortiGate', 'Zscaler', 'Palo Alto']:
+            for status in ['200', '403']:
+                output = self.http(status=status, body=f'HTTP/1.1 {status} Response\r\n\r\n{vendor}: category blocked')
+                self.assertIn('POSSIBLE SECURITY FILTERING', output)
+                self.assertTrue(output.startswith('WARN\nPASS'), output)
 
-    def test_weak_denial_not_definitive(self):
-        output = self.http(body='HTTP/1.1 403 Forbidden\r\n\r\nAccess denied')
-        self.assertIn('filtering not established', output)
-        self.assertNotIn('POSSIBLE SECURITY FILTERING', output)
+    def test_generic_denial_wording_does_not_warn_on_verified_http(self):
+        for status in ['200', '401', '403', '404']:
+            for wording in ['Access denied', 'blocked', 'web filter']:
+                output = self.http(status=status, body=f'HTTP/1.1 {status} Response\r\n\r\n{wording}')
+                self.assertTrue(output.startswith('PASS\nPASS'), output)
+                self.assertIn('insufficient evidence of network filtering', output)
+                self.assertNotIn('POSSIBLE SECURITY FILTERING', output)
+
+    def test_denial_wording_never_clears_service_or_transport_errors(self):
+        for status in ['407', '500', '503']:
+            output = self.http(status=status, body=f'HTTP/1.1 {status} Error\r\n\r\nAccess denied')
+            self.assertTrue(output.startswith('WARN\nPASS'), output)
+            self.assertIn('Service/proxy error response requires review', output)
+        for rc in [28, 60]:
+            output = self.http(rc=rc, body='HTTP/1.1 403 Forbidden\r\n\r\nAccess denied')
+            self.assertTrue(output.startswith('FAIL\n'), output)
 
     def test_classification(self):
         base = 'for k in dns cname tcp tls http; do E[$k]=PASS; done; '
@@ -766,7 +780,7 @@ exit 99
             'rum-direct|rum|Browser intake|browser-intake-datadoghq.com|443|https|all|server_sanity_only|informational|all|/|-|https://example.com/docs\n'
             'rum-wildcard|rum|Browser wildcard|*.browser-intake-datadoghq.com|443|https|all|wildcard|informational|all|/|ALLOWLIST REQUIREMENT|https://example.com/docs\n')
         self.write_command('curl', r'''
-printf 'HTTP/1.1 403 Forbidden\r\n\r\nAccess denied'
+printf 'HTTP/1.1 403 Forbidden\r\n\r\nFortiGate: access denied'
 printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
 ''')
         result, _ = self.scan(1)
@@ -774,7 +788,32 @@ printf '\nDD_PREFLIGHT_META\n403\nhttps://example.com/\n192.0.2.1\n0\n0\n'
         attention = summary.split('Needs attention', 1)[1].split('Manual review', 1)[0]
         self.assertEqual(attention.count('rum:'), 1)
         self.assertIn('rum: 0 pass, 1 warn, 0 fail, 0 review', summary)
+        self.assertIn('possible security-filter response(s)', attention)
         self.assertNotIn('Manual review', summary)
+
+    def test_rum_remote_configuration_s3_denial_is_connectivity_pass(self):
+        (self.root / 'config/endpoints.conf').write_text(
+            '# last_verified_against_datadog_docs=2026-09-29\n'
+            'rum-rc|rum|RUM Remote Configuration|sdk-configuration.{rum}|443|https|all|server_sanity_only|informational|all|/|-|https://example.com/docs\n')
+        self.write_command('curl', r'''
+printf 'HTTP/1.1 403 Forbidden\r\nServer: AmazonS3\r\nVia: 1.1 edge.cloudfront.net (CloudFront)\r\n\r\n'
+printf '<Error><Code>AccessDenied</Code><Message>Access Denied</Message><RequestId>private-request-id</RequestId></Error>'
+printf '\nDD_PREFLIGHT_META\n403\nhttps://sdk-configuration.browser-intake-datadoghq.com/\n192.0.2.1\n0\n0\n'
+''')
+        result, report = self.scan(0)
+        endpoint = report['endpoints'][0]
+        self.assertEqual(endpoint['http_result']['http_status'], '403')
+        self.assertEqual(endpoint['http_result']['status'], 'PASS')
+        self.assertEqual(endpoint['status'], 'PASS')
+        self.assertEqual(endpoint['impact'], 'PASS')
+        self.assertEqual(report['direct_endpoint_counts'], {'pass': 1, 'warn': 0, 'fail': 0})
+        self.assertEqual(report['overall_status'], 'READY')
+        self.assertIn('Generic denial wording observed', endpoint['notes'])
+        self.assertNotIn('POSSIBLE SECURITY FILTERING', endpoint['notes'])
+        self.assertRegex(result.stdout, r'PASS\s+sdk-configuration\.browser-intake-datadoghq\.com\s+ok\s+ok\s+ok\s+403')
+        detailed = next((self.root / 'reports').glob('*.txt')).read_text()
+        self.assertIn('insufficient evidence of network filtering', detailed)
+        self.assertNotIn('private-request-id', detailed + json.dumps(report) + result.stdout)
 
     def test_rum_terminal_explicitly_limits_browser_claim(self):
         self.manifest()

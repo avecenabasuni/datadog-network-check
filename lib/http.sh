@@ -133,8 +133,11 @@ http_attempt() {
     if [[ -n $vendor ]] && ((generic)); then
         [[ ${E[http]} == FAIL ]] || E[http]=WARN
         add_note "POSSIBLE SECURITY FILTERING: $vendor and denial/filter signature detected; not definitive proof"
-    elif ((generic)) && [[ ${E[http]} != FAIL ]]; then
-        E[http]=WARN; add_note 'Denial/filter wording observed; may be an ordinary application response; filtering not established'
+    elif ((generic)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]]; then
+        # S3/CloudFront and application endpoints also return Access Denied.
+        # Generic wording alone cannot identify a firewall/proxy block page.
+        # Keep transport, service/proxy errors, and retry warnings independent.
+        add_note 'Generic denial wording observed; insufficient evidence of network filtering'
     fi
     if [[ ${E[tls]} == SKIPPED ]]; then add_note "Detailed TLS inspection SKIPPED; curl TLS fallback ${E[curl_tls]}"; fi
 }
