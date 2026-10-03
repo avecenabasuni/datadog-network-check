@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=23146d7524deebe2b6aaa73ffc75fd3ce55c1a99ff556e8ece77db25b37b820d
+# source_sha256=6f2c033296eefe11a7d7a57024c4eed6053f0afe6be97f86dd1f33f295516eea
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -1145,7 +1145,8 @@ terminal_endpoint() {
     state=${E[impact]}
     if [[ ${E[test_type]-} == ntp ]]; then
         terminal_row "$state" "${E[hostname]}" "$(terminal_stage "${E[dns]}")" '--' '--' '--'
-        terminal_wrap "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}" '        ' '        '
+        [[ $state != PASS ]] || return 0
+        terminal_note "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}"
         [[ $NTP_TARGET_SOURCE != documented-public-fallback || $state == PASS ]] || terminal_note 'Public fallback only; use --ntp-host for private/cloud NTP.'
         return 0
     fi
@@ -1551,7 +1552,7 @@ report_finish() {
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.6
+TOOL_VERSION=0.1.7
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2

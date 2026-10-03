@@ -26,6 +26,8 @@ Shell functions (`have`, `tcp_connect`, `tls_probe`, `curl_probe`) provide narro
 
 Terminal presentation tests check that an interactive run shows one compact endpoint row while the TXT report retains the detailed probe records. They also check actionable failure text, plain output when redirected, ANSI colors when stdout is a TTY, and `NO_COLOR` suppression. The summary's readiness counts are still validated against JSON.
 
+Passing NTP rows omit the reply commentary at both 80 and 50 columns. WARN/FAIL NTP notes remain visible, while TXT/JSON retain the full response details and stratum.
+
 `tests/run.sh` runs ShellCheck when available and clearly reports when it is absent. It never installs packages. Bash syntax can also be checked with:
 
 ```bash

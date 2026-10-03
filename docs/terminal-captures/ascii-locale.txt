@@ -3,7 +3,7 @@
 | | | |/ _ \ | | / _ \ | | | | | | | |  _
 | |_| / ___ \| |/ ___ \| |_| | |_| | |_| |
 |____/_/   \_\_/_/   \_\____/ \___/ \____|
-  N E T W O R K   P R E F L I G H T    v0.1.6
+  N E T W O R K   P R E F L I G H T    v0.1.7
   ------------------------------------------
   eminerba-lab | Ubuntu 22.04.5 LTS | US1 (datadoghq.com)
 
@@ -39,17 +39,9 @@
 
  NTP --------------------------------------------------------------------------
   PASS   0.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   1.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   2.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   3.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
 
  OTHER REQUIREMENTS -----------------------------------------------------------
   REVIEW destination-unspecified                           --   --   -- --

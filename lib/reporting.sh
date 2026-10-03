@@ -341,7 +341,8 @@ terminal_endpoint() {
     state=${E[impact]}
     if [[ ${E[test_type]-} == ntp ]]; then
         terminal_row "$state" "${E[hostname]}" "$(terminal_stage "${E[dns]}")" '--' '--' '--'
-        terminal_wrap "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}" '        ' '        '
+        [[ $state != PASS ]] || return 0
+        terminal_note "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}"
         [[ $NTP_TARGET_SOURCE != documented-public-fallback || $state == PASS ]] || terminal_note 'Public fallback only; use --ntp-host for private/cloud NTP.'
         return 0
     fi

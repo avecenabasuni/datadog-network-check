@@ -1,4 +1,4 @@
-DATADOG NETWORK PREFLIGHT  v0.1.6
+DATADOG NETWORK PREFLIGHT  v0.1.7
 
   Proxy: none
   Tools: curl dig nslookup openssl nc
@@ -32,17 +32,9 @@ DATADOG NETWORK PREFLIGHT  v0.1.6
 
  NTP ──────────────────────────────────────────────────────────────────────────
   PASS   0.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   1.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   2.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
   PASS   3.datadog.pool.ntp.org                            ok   --   -- --
-        NTP UDP/123: PASS - Valid matched NTPv3 server reply. stratum 2. direct
-        UDP/123
 
  OTHER REQUIREMENTS ───────────────────────────────────────────────────────────
   REVIEW destination-unspecified                           --   --   -- --

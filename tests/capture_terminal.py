@@ -159,7 +159,7 @@ def main():
         if name == 'ascii-locale.txt':
             assert output.isascii()
         if name == 'piped.txt':
-            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.6\n')
+            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.7\n')
         (OUT / name).write_bytes(output)
         print(f'{name}: {len(output)} bytes')
     interrupted = render(True, {}, INTERRUPT_SCRIPT, expected=3)

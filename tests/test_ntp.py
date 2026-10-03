@@ -135,7 +135,9 @@ class NTPTests(unittest.TestCase):
                 'E[test_type]=ntp; E[port]=123; E[hostname]=0.datadog.pool.ntp.org; E[dns]=PASS; '
                 'E[ntp]=PASS; E[impact]=PASS; '
                 "E[ntp_detail]='Valid matched NTPv3 server reply; stratum 2; direct UDP/123'; terminal_endpoint")
-            self.assertIn('NTP UDP/123: PASS', output)
+            self.assertRegex(output, r'PASS\s+0\.datadog\.pool\.ntp\.org')
+            self.assertNotIn('NTP UDP/123:', output)
+            self.assertNotIn('Valid matched', output)
             self.assertLessEqual(max(map(len, output.splitlines())), width)
 
     def test_invalid_customer_targets_and_limit_are_rejected(self):
@@ -259,7 +261,8 @@ esac
         self.assertEqual(report['endpoints'][1]['ntp_result']['stratum'], '2')
         self.assertEqual(report['endpoints'][1]['http_result']['status'], 'NOT APPLICABLE')
         self.assertEqual(report['schema_version'], '1.4')
-        self.assertIn('NTP UDP/123: PASS', result.stdout)
+        self.assertRegex(result.stdout, r'PASS\s+0\.datadog\.pool\.ntp\.org')
+        self.assertNotIn('NTP UDP/123: PASS', result.stdout)
         txt = next((self.root / 'reports').glob('*.txt')).read_text()
         self.assertIn('NTP UDP/123     PASS', txt)
         self.assertIn('stratum=2', txt)
