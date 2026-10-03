@@ -22,7 +22,7 @@ Passing the first DOES NOT prove the second.
 From a writable directory on the Linux VM, paste this single command:
 
 ```bash
-bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 "https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh?v=0.1.4") || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
+bash -c 's=$(SSLKEYLOGFILE= curl -qfsSm60 "https://raw.githubusercontent.com/avecenabasuni/datadog-network-check/main/dist/dd-network-check.sh?v=0.1.5") || exit 3; exec bash -c "${s:-exit 3}" -- "$@"'
 ```
 
 Select a Datadog site when prompted; the **entire scan** runs automatically. The generated single-file distribution includes every runtime module and both manifests. No clone, unpacking, package installation, API key, or product selection is needed. Runtime requirements remain Bash 4+, curl and the standard Linux utilities listed below; Python and Git are not required on the customer VM.
@@ -31,7 +31,7 @@ The download completes successfully before execution begins. The compact `-qfsSm
 
 **Reports are saved in `./reports/` under the directory where you run the command**, even if no repository checkout exists. The downloaded program and embedded manifests stay in memory; no installation or temporary extraction directory is created. Generated TXT/JSON files and exit codes are the same as local execution.
 
-The URL uses the published `main` bundle with a versioned query to avoid reusing a cached response from a previous release. It serves v0.1.4 only after the commits are pushed to `main`; check the printed version before using a new release. The VM needs outbound access to `raw.githubusercontent.com` for the download and `github.com` for the default latest stable Agent version lookup, in addition to the Datadog destinations being tested. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh --agent-version X.Y.Z`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
+The URL uses the published `main` bundle with a versioned query to avoid reusing a cached response from a previous release. It serves v0.1.5 only after the commits are pushed to `main`; check the printed version before using a new release. The VM needs outbound access to `raw.githubusercontent.com` for the download and `github.com` for the default latest stable Agent version lookup, in addition to the Datadog destinations being tested. If GitHub access is unavailable, transfer the reviewed `dist/dd-network-check.sh` file through your approved channel and run `bash dd-network-check.sh --agent-version X.Y.Z`; it also works without companion files. Remote execution trusts this repository and GitHub's HTTPS delivery; the embedded source digest is build provenance, not an independent signature.
 
 For unattended execution, append `-- --site us1` after the closing quote of the one-command invocation. With no arguments, interactive selection remains the default. See [distribution design and tests](docs/DISTRIBUTION.md).
 
@@ -71,7 +71,7 @@ These mappings come from [Datadog Sites](https://docs.datadoghq.com/getting_star
 dd-network-check.sh          Interactive selection, validation, orchestration
 config/sites.conf           Explicit site and RUM mappings
 config/endpoints.conf       Destination data, applicability, policy, provenance
-lib/{dns,tcp,tls,http}.sh    Independent diagnostics
+lib/{dns,tcp,tls,http,ntp}.sh Independent diagnostics
 lib/utils.sh                Manifest validation and deterministic result rules
 lib/reporting.sh            Terminal, TXT and JSON serialization
 docs/ENDPOINTS.md            Source review, exclusions and maintenance process
@@ -99,6 +99,8 @@ A GET with a byte range limits requested body size. Response capture is capped; 
 All limits are at the top of `dd-network-check.sh`. Requests are sequential; successful endpoints receive no retry. HTTP performs at most two original-endpoint attempts plus one optional redirect diagnostic (up to four requests in that diagnostic). TLS performs at most two attempts. A full scan can take several minutes, especially with failed or slow routes. A successful sampled address does not validate every current or future IP, both IP families, sustained availability, throughput, payload upload limits, or every API path/method. The script uses ordinary hostnames; it does not separately validate trailing-dot behavior used by newer Agents.
 
 ## Terminal display and detailed reports
+
+NTP has a separate direct UDP stage. Requests use NTPv3 like the Agent default; replies must have a valid server mode/version, matching originate timestamp, usable stratum, nonzero transmit timestamp and synchronized-server indicator. A socket opening or unrelated bytes never pass. A request has a five-second deadline, probes at most two resolved addresses, and stops on a matched usable, unsynchronized or Kiss-o'-Death response. TCP/TLS/HTTP are NOT APPLICABLE for NTP. No clock changes, clock-offset measurement, or server authentication are performed.
 
 The terminal shows a Datadog banner after site selection. It uses the block-letter version in a UTF-8 terminal at least 64 columns wide, ASCII art in other locales, and a compact header below 64 columns or with `--quiet`. Use `--no-banner` to hide it. A pipe receives one plain title line. Each category heading and endpoint row streams during the scan; a TTY with color enabled shows a single temporary progress footer. Endpoint rows align DNS, TCP, TLS, and HTTP stages. Narrow terminals stack those stages below each endpoint and show the full name under a shortened hostname. `WARN` and `FAIL` reasons use up to two indented lines, while expected registry redirects share one allowlist note. Manual targets and unresolved versioned destinations say `REVIEW` and are marked not tested. Wildcard firewall guidance stays in TXT/JSON documentation notes, outside terminal test rows and counts. A redirect appears as `307>200` when the original endpoint responded 307 and its follow-up returned 200.
 
@@ -153,6 +155,9 @@ Per-test states are PASS, WARN, FAIL, SKIPPED, NOT APPLICABLE and NOT DIRECTLY T
 | Vendor plus explicit denial/filter wording | WARN: POSSIBLE SECURITY FILTERING; not definitive proof |
 | Generic “access denied”/“blocked” wording | Report note only; does not change verified HTTPS connectivity status |
 | Optional detailed test unavailable | SKIPPED; coverage warning |
+| Valid matched NTP server reply | NTP PASS; direct UDP reachability, not proof of local clock synchronization |
+| NTP Kiss-o'-Death or unsynchronized-server reply | NTP WARN; server responded without usable synchronized time |
+| NTP timeout, invalid reply, or request timestamp mismatch | NTP FAIL; timeout alone does not establish filtering |
 | Version/port requirement without concrete target | NOT DIRECTLY TESTABLE; coverage warning |
 | Documented wildcard firewall pattern | TXT/JSON documentation note; no test result or readiness impact |
 | Windows-only, excluded traffic, or site excluded by manifest | NOT APPLICABLE; neutral in aggregation |
@@ -176,7 +181,19 @@ An endpoint's **status** is its worst stage result (FAIL, then WARN/SKIPPED/unve
 | BLOCKED | 2 | At least one required endpoint has FAIL impact |
 | Script/configuration/internal error | 3 | Invalid input, missing required tools, unsupported OS, report failure or interrupted scan |
 
-**The shipped full manifest normally cannot reach READY**, because non-HTTPS/manual requirements cannot be proven automatically. READY WITH WARNINGS is intentionally not an unconditional all-clear. BLOCKED refers to the declared full POC scope: it does not imply every product is unusable. Some listed server features may be unnecessary for a particular POC; review blockers against the agreed scope.
+On US1/EU1, **the shipped full manifest normally cannot reach READY**, because custom autoscaling and RC development requirements still lack concrete destinations. Other sites can reach READY when all applicable checks pass. READY WITH WARNINGS is not an unconditional all-clear. BLOCKED refers to the declared full POC scope: it does not imply every product is unusable. Review blockers against the agreed scope.
+
+## NTP targets
+
+The [Datadog NTP integration](https://docs.datadoghq.com/integrations/ntp/) documents private cloud-provider servers when available, otherwise `0.datadog.pool.ntp.org` through `3.datadog.pool.ntp.org`. NTP ignores HTTP proxy settings. This checker tests the four public fallback pools by default, independently of the selected Datadog site. It does not detect cloud providers or read customer Agent/OS NTP configuration.
+
+Replace the public pools with the actual customer targets when appropriate:
+
+```bash
+bash dd-network-check.sh --site us1 --ntp-host ntp.internal.example --ntp-host 192.0.2.10
+```
+
+Up to eight distinct hostname or unbracketed IPv4/IPv6 targets are accepted on UDP/123. For the one-command invocation, append `-- --site us1 --ntp-host HOST`. Explicit targets receive no public fallback. Default pool failures have informational WARN impact because the Agent may use a different server; an explicit customer target is required and failure blocks readiness. Missing `timeout`, `dd`, or `od` skips NTP with WARN impact and never fabricates a pass. These are one-off connectivity probes; avoid continuously scanning public NTP pools.
 
 ## RUM and wildcards
 
@@ -194,9 +211,9 @@ No proxy configuration is changed. curlrc is disabled so user options cannot inj
 
 ## Dependencies and reports
 
-Required: Bash 4+, curl, and ordinary Linux utilities (`awk`, `sed`, `grep`, `head`, `tee`, `wc`, `tr`, `date`, `hostname`, `mktemp`, `mkdir`, `mv`, `rm`, `rmdir`, `dirname`, `uname`). Expected: `getent`. Optional: `dig`, `nslookup`, `openssl`, `timeout`. `nc` availability is displayed but it is not needed. No jq, yq or Python runtime dependency. On systems lacking `timeout`, only inherently bounded DNS tools and curl are used; detail stages are skipped.
+Required: Bash 4+, curl, and ordinary Linux utilities (`awk`, `sed`, `grep`, `head`, `tee`, `wc`, `tr`, `date`, `hostname`, `mktemp`, `mkdir`, `mv`, `rm`, `rmdir`, `dirname`, `uname`). Expected: `getent`. Optional: `dig`, `nslookup`, `openssl`, `timeout`, `dd`, `od`. `nc` availability is displayed but it is not needed. No jq, yq or Python runtime dependency. On systems lacking `timeout`, only inherently bounded DNS tools and curl are used; detail stages are skipped.
 
-TXT and JSON reports are automatically saved under `reports/` with host, UTC timestamp and a collision-resistant suffix. Files use a restrictive umask; the directory must be owned by the current user and must not be a symlink. Reports contain no ANSI colors. JSON schema version 1.3 (tool 0.1.4) includes metadata, site, dependency/proxy detection, categories, endpoint stages, certificate metadata, direct endpoint PASS/WARN/FAIL counts, allowlist requirements, untested requirements, blockers and overall status. Agent metadata also includes `agent_version_source` and `agent_version_detail` (empty when resolution succeeds). Each endpoint has a `redirect_host` field (empty if no redirect); TXT includes a `Redirect host` line. HTTP numeric metadata is represented as strings, with empty strings for unavailable values. `http_result` describes the original endpoint; `http_result.redirect_result` holds follow-up status, URL, IP, TLS result, redirect count and elapsed time. `attempts` arrays retain bounded HTTP/TLS probe histories. Summary blockers include the failure reason, not just a status code. Interrupted runs leave private intermediate files under `.run-*`; these are incomplete and must not be treated as final reports.
+TXT and JSON reports are automatically saved under `reports/` with host, UTC timestamp and a collision-resistant suffix. Files use a restrictive umask; the directory must be owned by the current user and must not be a symlink. Reports contain no ANSI colors. JSON schema version 1.4 (tool 0.1.5) includes metadata, site, dependency/proxy detection, categories, endpoint stages, certificate metadata, direct endpoint PASS/WARN/FAIL counts, allowlist requirements, untested requirements, blockers and overall status. Agent metadata also includes `agent_version_source` and `agent_version_detail` (empty when resolution succeeds). NTP metadata records `ntp_target_source`; `ntp_result` records status, detail, IP, version, stratum, leap indicator, Kiss-o'-Death code, target source and attempt history. Each endpoint has a `redirect_host` field (empty if no redirect); TXT includes a `Redirect host` line. HTTP numeric metadata is represented as strings, with empty strings for unavailable values. `http_result` describes the original endpoint; `http_result.redirect_result` holds follow-up status, URL, IP, TLS result, redirect count and elapsed time. `attempts` arrays retain bounded HTTP/TLS probe histories. Summary blockers include the failure reason, not just a status code. Interrupted runs leave private intermediate files under `.run-*`; these are incomplete and must not be treated as final reports.
 
 Illustrative excerpt (not evidence about your VM):
 

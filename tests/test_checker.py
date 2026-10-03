@@ -29,7 +29,7 @@ class UnitTests(unittest.TestCase):
 
     def test_manifests_all_sites(self):
         self.assertEqual(self.run_code('load_sites && validate_manifest || exit 1; '
-            '[[ ${#SITE_CODES[@]} == 9 && ${#RECORDS[@]} == 59 ]] || exit 1; '
+            '[[ ${#SITE_CODES[@]} == 9 && ${#RECORDS[@]} == 62 ]] || exit 1; '
             'for SITE in "${SITE_CODES[@]}"; do for line in "${RECORDS[@]}"; do '
             'parse_record "$line"; [[ $test_type == manual || $test_type == excluded ]] && continue; '
             'h=${template//\\{site\\}/${SITE_DOMAINS[$SITE]}}; '
@@ -123,7 +123,7 @@ class UnitTests(unittest.TestCase):
         self.assertEqual(tty_banner('C.UTF-8', 80, 'TERMINAL_NO_BANNER=1;'), '')
         piped = bash(setup + 'TERMINAL_TTY=0; terminal_banner')
         self.assertEqual(piped.returncode, 0, piped.stderr)
-        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.4\n')
+        self.assertEqual(piped.stdout, 'DATADOG NETWORK PREFLIGHT  v0.1.5\n')
         self.assertNotIn('\x1b', piped.stdout)
 
     def test_compact_warning_explains_skipped_optional_tls_probe(self):
@@ -239,7 +239,7 @@ terminal_group_notes "$category"
             'full=$(terminal_destination_count); '
             'RECORDS=("${RECORDS[0]}" "${RECORDS[4]}"); '
             'printf "%s %s" "$full" "$(terminal_destination_count)"')
-        self.assertEqual(output, '51 1')
+        self.assertEqual(output, '54 1')
 
     def test_safe_url_redaction(self):
         output = self.run_code("safe_url 'https://name:secret@example.com/token-path?api_key=secret#secret'")
@@ -610,8 +610,8 @@ fi
         self.manifest()
         result, report = self.scan(0, interactive=True)
         self.assertIn('9) US2-FED', result.stdout)
-        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.4', result.stdout)
-        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.4'), 1)
+        self.assertIn('DATADOG NETWORK PREFLIGHT  v0.1.5', result.stdout)
+        self.assertEqual(result.stdout.count('DATADOG NETWORK PREFLIGHT  v0.1.5'), 1)
         self.assertIn('[ SELECT DATADOG SITE ]', result.stdout)
         self.assertIn('Choice: \nDATADOG NETWORK PREFLIGHT', result.stdout)
         self.assertRegex(result.stdout, r'1 pass.*0 warn.*0 fail.*0 review')

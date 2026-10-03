@@ -178,7 +178,7 @@ printf '\nDD_PREFLIGHT_META\n206\nhttps://docs.datadoghq.com/guide\n192.0.2.2\n1
         self.registry_manifest('registry.datadoghq.com')
         result, report = self.scan(0)
         endpoint = report['endpoints'][0]
-        self.assertEqual(report['schema_version'], '1.3')
+        self.assertEqual(report['schema_version'], '1.4')
         self.assertEqual(endpoint['impact'], 'PASS')
         self.assertEqual(endpoint['redirect_host'], 'docs.datadoghq.com')
         self.assertEqual(endpoint['http_result']['http_status'], '307')

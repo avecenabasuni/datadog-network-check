@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Add direct UDP/123 NTP probes for the four documented Datadog public fallback pools. Validate matched replies and report timeout, invalid-response, unsynchronized-server and Kiss-o'-Death results. Repeatable `--ntp-host` replaces pools with required customer targets; default pool failures remain informational. NTP ignores HTTP proxies and needs no Python or package installation. Tool version is 0.1.5; additive JSON schema 1.4 records NTP results, history and target provenance.
 - Treat generic denial wording such as `Access Denied` as a report note, preserving PASS for verified HTTPS reachability. This removes the false connectivity warning on RUM Remote Configuration S3/CloudFront 403 responses. Vendor-plus-denial signatures, service/proxy errors, retries, and transport/TLS failures retain their existing impact.
 - Show Proxy, Tools, Scope, and Agent on separate terminal lines, including wrapped output on narrow terminals.
 - Default to the latest stable Agent release from the official GitHub release redirect instead of detecting a local installation. Explicit flag/environment version overrides still take precedence and avoid GitHub access.

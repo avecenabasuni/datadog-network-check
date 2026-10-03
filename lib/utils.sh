@@ -55,6 +55,8 @@ reset_result() {
        [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
        [redirect_http_status]='' [redirect_final_url]='' [redirect_host]='' [redirect_remote_ip]=''
        [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
+       [ntp]='NOT APPLICABLE' [ntp_detail]='Not an NTP endpoint' [ntp_attempts]='' [ntp_ip]=''
+       [ntp_version]='' [ntp_stratum]='' [ntp_leap]='' [ntp_kiss_code]='' [ntp_target_source]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }
 proxy_snapshot() {
@@ -104,7 +106,7 @@ validate_manifest() {
         ids[$id]=1
         case $protocol in https|tcp|udp) ;; *) error "Invalid protocol at line $line_no"; return 1;; esac
         case $os in all|linux|windows|desktop) ;; *) error "Invalid OS at line $line_no"; return 1;; esac
-        case $test_type in full|server_sanity_only|wildcard|version|manual|excluded) ;; *) error "Invalid test type at line $line_no"; return 1;; esac
+        case $test_type in full|server_sanity_only|wildcard|version|ntp|manual|excluded) ;; *) error "Invalid test type at line $line_no"; return 1;; esac
         case $requirement in required|informational) ;; *) error "Invalid requirement at line $line_no"; return 1;; esac
         [[ $path =~ ^/[a-zA-Z0-9/_.-]*$ && $source == https://* && $source != *' '* && -n $sites && -n $template ]] || { error "Invalid path/source/scope at line $line_no"; return 1; }
         [[ $sites != ,* && $sites != *, && $sites != *,,* ]] || { error "Invalid site list at line $line_no"; return 1; }
@@ -117,7 +119,11 @@ validate_manifest() {
         [[ $test_type != wildcard ]] || host=${host#\*.}
         if [[ $test_type != manual && $test_type != excluded ]]; then
             valid_host "$host" || { error "Invalid hostname/template at line $line_no"; return 1; }
-            [[ $protocol == https ]] || { error "Only HTTPS active probes supported at line $line_no"; return 1; }
+            if [[ $test_type == ntp ]]; then
+                [[ $protocol == udp && $port == 123 ]] || { error "NTP requires UDP/123 at line $line_no"; return 1; }
+            else
+                [[ $protocol == https ]] || { error "Unsupported active protocol at line $line_no"; return 1; }
+            fi
         fi
         [[ $test_type != wildcard || $template == \*.* ]] || return 1
         [[ $test_type != version || $template == *'{version}'* ]] || return 1
@@ -161,10 +167,11 @@ detect_agent_version() {
     return 0
 }
 classify_result() {
-    local field
+    local field fields='dns cname tcp tls http'
     if [[ ${E[classification]} == 'NOT APPLICABLE' ]]; then E[status]='NOT APPLICABLE'; E[impact]=PASS; return; fi
     E[status]=PASS
-    for field in dns cname tcp tls http; do
+    [[ ${E[test_type]-} != ntp ]] || fields='dns ntp'
+    for field in $fields; do
         case ${E[$field]} in
             FAIL) E[status]=FAIL;;
             WARN|SKIPPED|'NOT DIRECTLY TESTABLE') [[ ${E[status]} == FAIL ]] || E[status]=WARN;;
@@ -172,7 +179,7 @@ classify_result() {
     done
     E[impact]=${E[status]}
     if [[ $requirement == informational && ${E[impact]} == FAIL ]]; then E[impact]=WARN; fi
-    if ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
+    if [[ ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
         E[impact]=WARN; add_note 'Environment-route HTTPS succeeded despite direct-path failures; proxy/NO_PROXY routing and Agent proxy configuration require review'
     fi
 }

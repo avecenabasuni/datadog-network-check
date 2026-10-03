@@ -6,6 +6,8 @@ Targeted Agent/RUM wildcard review: **2026-10-03**, using Context7 and the offic
 
 ## Sources and precedence
 
+Targeted NTP review: **2026-10-03**, using Context7's Datadog NTP overview and troubleshooting references, then the official Agent implementation and RFC 5905. Private cloud servers may be selected by the Agent; the checker tests documented public fallback pools unless explicit customer targets replace them. It does not infer effective Agent/OS NTP configuration.
+
 - [Agent Network Traffic](https://docs.datadoghq.com/agent/configuration/network/): primary destination inventory, installation domains, Agent version convention, site-gated DBM/EUDM, outbound ports, optional public-IP services and Operator registries.
 - [Datadog Sites](https://docs.datadoghq.com/getting_started/site/): nine site parameters.
 - [RUM](https://docs.datadoghq.com/real_user_monitoring/): explicit intake and Browser Profiling quota tables, including both government sites.
@@ -13,6 +15,9 @@ Targeted Agent/RUM wildcard review: **2026-10-03**, using Context7 and the offic
 - [Logging endpoints](https://docs.datadoghq.com/logs/log_collection/#logging-endpoints): HTTPS Agent/custom forwarding and browser logging, linked from Network Traffic.
 - [Official documentation region configuration](https://github.com/DataDog/documentation/blob/master/hugo/assets/scripts/config/regions.config.js): resolves placeholders in the rendered Network Traffic page, particularly `agent_http_endpoint`, `http_endpoint`, and `browser_sdk_endpoint_domain`.
 - [Network Traffic source](https://github.com/DataDog/documentation/blob/master/hugo/content/en/agent/configuration/network.md): verifies site-region guards that are hidden in static text extraction.
+- [NTP integration](https://docs.datadoghq.com/integrations/ntp/): four public fallback hosts, cloud-private preference, custom configuration and lack of HTTP proxy support.
+- [Agent NTP implementation](https://github.com/DataDog/datadog-agent/blob/main/pkg/collector/corechecks/net/ntp/ntp.go): NTPv3 default, five-second timeout and UDP/123.
+- [RFC 5905](https://www.rfc-editor.org/rfc/rfc5905.html): server response fields, origin matching, synchronization and Kiss-o'-Death responses.
 
 Network Traffic uses JavaScript-populated site placeholders. A blank hostname suffix in a text-only scrape is not a real endpoint. Review the rendered site variants and the official region mappings. Prefix expansion in this manifest is limited to conventions actually documented by these sources.
 
@@ -35,7 +40,7 @@ Network Traffic uses JavaScript-populated site placeholders. A blank hostname su
 | RUM wildcard | TXT/JSON documentation guidance, excluded from test results and readiness; normalize regional wording with the explicit site mapping; the apex intake has its own concrete probe |
 | Network Path third-party IP-discovery services | Informational optional feature, Agent 7.75+; a failure does not block core readiness |
 | Container registries | Informational alternatives depending on selected registry. No image pulls/authentication tested; registry redirects may require additional hosts |
-| UDP NTP/123 | Manual requirement; v0.1 has no UDP/NTP probe and does not inspect customer Agent configuration |
+| UDP NTP/123 | Validated direct NTP probes to four documented public fallback pools; informational impact. `--ntp-host` replaces them with required customer targets. Agent/OS/cloud server selection is not detected |
 | TCP/8443 custom autoscaling, TCP/8042 RC development probe | Manual on US1/EU1 where listed; primary page supplies ports without concrete hostnames. Never guess a hostname or test these as HTTPS/443 |
 | Deprecated TCP/HIPAA logs | Unsupported legacy transport excluded; supported HTTPS logs tested |
 | Lambda-only logging | NOT APPLICABLE TO SERVER-SIDE PREFLIGHT from a Linux application VM |
@@ -59,9 +64,9 @@ id|category|label|hostname_template|port|protocol|applicable_os|test_type|requir
 - `id`: unique lowercase letters, digits, underscores or hyphens.
 - `category`: stable machine key; grouping is derived from it.
 - `hostname_template`: literal documented hostname, or `{site}`, `{rum}`, `{version}` substitutions. Only `wildcard` records can start with `*.`. Manual/excluded entries may use descriptive placeholders and are never queried.
-- `port`: 1–65535. Active v0.1 probes use HTTPS; manual records also represent TCP/UDP.
+- `port`: 1–65535. Active probes use HTTPS, or UDP/123 with `test_type=ntp`; manual records also represent TCP/UDP.
 - `applicable_os`: `all`, `linux`, `windows`, or `desktop` (reserved for explicitly desktop-only records).
-- `test_type`: `full`, `server_sanity_only`, `wildcard`, `version`, `manual`, `excluded`. Applicable `wildcard` records supply documentation guidance in TXT and JSON `allowlist_requirements`; they do not create endpoint records or change readiness.
+- `test_type`: `full`, `server_sanity_only`, `wildcard`, `version`, `ntp`, `manual`, `excluded`. Applicable `wildcard` records supply TXT/JSON guidance without endpoint results or readiness impact. `ntp` requires UDP/123; other active types require HTTPS. NTP CLI overrides are validated data, never evaluated as shell code.
 - `requirement`: `required` blocks when failed; `informational` caps impact at WARN.
 - `sites`: `all` or comma-separated site codes. A site exclusion is visible in the report.
 - `path`: conservative absolute URL path without credentials/query strings. Default `/`.

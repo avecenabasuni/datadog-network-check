@@ -14,9 +14,9 @@ declare -A TERMINAL_SNAP=() TERMINAL_COUNTS=() TERMINAL_GROUP_COUNTS=() TERMINAL
 declare -a TERMINAL_ORDER=() TERMINAL_NOTE_KEY=() CATEGORY_ORDER=() BLOCKERS=() ALLOWLIST=() UNTESTED=() TERMINAL_OTHER_REQUIREMENTS=()
 SITE=us1 MACHINE=eminerba-lab OS_NAME='Ubuntu 22.04.5 LTS'
 AGENT_VERSION='7-84-1' AGENT_VERSION_DISPLAY='7.84.1' AGENT_VERSION_SOURCE=latest-release
-PROXY_PRESENT=0 TERMINAL_TTY=$1 TERMINAL_WIDTH=$COLUMNS
-TERMINAL_PROGRESS_TOTAL=13 TERMINAL_PROGRESS_DONE=0 TERMINAL_PROGRESS_TICK=0
-OVERALL='READY WITH WARNINGS' DIRECT_PASS=11 DIRECT_WARN=1 DIRECT_FAIL=0
+PROXY_PRESENT=0 TERMINAL_TTY=$1 TERMINAL_WIDTH=$COLUMNS NTP_TARGET_SOURCE=documented-public-fallback
+TERMINAL_PROGRESS_TOTAL=17 TERMINAL_PROGRESS_DONE=0 TERMINAL_PROGRESS_TICK=0
+OVERALL='READY WITH WARNINGS' DIRECT_PASS=15 DIRECT_WARN=1 DIRECT_FAIL=0
 REPORT_BASE='/home/ave/reports/dd-network-preflight-eminerba-lab-20260930-035702-VRGkFO'
 terminal_banner
 terminal_intro 'curl dig nslookup openssl nc' ''
@@ -44,6 +44,10 @@ add_row() {
         E[notes]='Unexpected redirect target; possible proxy/captive portal block page.'
     elif [[ $note == denial ]]; then
         E[notes]='Generic denial wording observed; insufficient evidence of network filtering'
+    elif [[ $note == ntp ]]; then
+        E[test_type]=ntp E[protocol]=udp E[port]=123
+        E[tcp]='NOT APPLICABLE' E[tls]='NOT APPLICABLE' E[http]='NOT APPLICABLE'
+        E[ntp]=PASS E[ntp_detail]='Valid matched NTPv3 server reply; stratum 2; direct UDP/123'
     fi
     terminal_capture_endpoint
     terminal_progress_clear
@@ -69,11 +73,15 @@ for host in gcr.io eu.gcr.io asia.gcr.io; do
 done
 add_row container_registries us-docker.pkg.dev WARN 'DIRECT TEST' 302 unexpected proxy.example.test
 add_row container_registries public.ecr.aws PASS 'DIRECT TEST' 401 ''
+category=ntp
+for pool in {0..3}; do
+    add_row ntp "$pool.datadog.pool.ntp.org" PASS 'DIRECT TEST' '' ntp
+done
 category=other_requirements
 add_row other_requirements destination-unspecified WARN 'NOT DIRECTLY TESTABLE' '' ''
 TERMINAL_OTHER_REQUIREMENTS+=('UDP telemetry (UDP/8125)')
 UNTESTED+=('UDP telemetry')
-CATEGORY_ORDER=(installation agent rum container_registries other_requirements)
+CATEGORY_ORDER=(installation agent rum container_registries ntp other_requirements)
 terminal_group_notes "$LAST_TERMINAL_CATEGORY"
 terminal_summary
 '''
@@ -150,7 +158,7 @@ def main():
         if name == 'ascii-locale.txt':
             assert output.isascii()
         if name == 'piped.txt':
-            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.4\n')
+            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.5\n')
         (OUT / name).write_bytes(output)
         print(f'{name}: {len(output)} bytes')
     interrupted = render(True, {}, INTERRUPT_SCRIPT, expected=3)

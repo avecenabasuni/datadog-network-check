@@ -3,7 +3,7 @@
 | | | |/ _ \ | | / _ \ | | | | | | | |  _
 | |_| / ___ \| |/ ___ \| |_| | |_| | |_| |
 |____/_/   \_\_/_/   \_\____/ \___/ \____|
-  N E T W O R K   P R E F L I G H T    v0.1.4
+  N E T W O R K   P R E F L I G H T    v0.1.5
   ------------------------------------------
   eminerba-lab | Ubuntu 22.04.5 LTS | US1 (datadoghq.com)
 
@@ -11,6 +11,7 @@
   Tools: curl dig nslookup openssl nc
   Scope: all destinations
   Agent: 7.84.1 (latest-release)
+  NTP: documented public fallback (UDP/123)
 
   STATUS DESTINATION                                      DNS  TCP  TLS HTTP
 
@@ -36,6 +37,20 @@
   PASS   public.ecr.aws                                    ok   ok   ok 401
        -> Allow docs.datadoghq.com, accounts.google.com.
 
+ NTP --------------------------------------------------------------------------
+  PASS   0.datadog.pool.ntp.org                            ok   --   -- --
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
+        direct UDP/123
+  PASS   1.datadog.pool.ntp.org                            ok   --   -- --
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
+        direct UDP/123
+  PASS   2.datadog.pool.ntp.org                            ok   --   -- --
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
+        direct UDP/123
+  PASS   3.datadog.pool.ntp.org                            ok   --   -- --
+        NTP UDP/123: PASS - Valid matched NTPv3 server reply; stratum 2;
+        direct UDP/123
+
  OTHER REQUIREMENTS -----------------------------------------------------------
   REVIEW destination-unspecified                           --   --   -- --
        -> Manual target; not tested.
@@ -43,13 +58,14 @@
 +- SUMMARY --------------------------------------------------------------------+
 |  [!!]  READY WITH WARNINGS                                                   |
 |                                                                              |
-|  [OK] 11 pass    [!!] 1 warn    [XX] 0 fail    [??] 1 review                 |
+|  [OK] 15 pass    [!!] 1 warn    [XX] 0 fail    [??] 1 review                 |
 |                                                                              |
 |  By category                                                                 |
 |    installation: 2 pass, 0 warn, 0 fail, 0 review                            |
 |    agent: 2 pass, 0 warn, 0 fail, 0 review                                   |
 |    rum: 2 pass, 0 warn, 0 fail, 0 review                                     |
 |    container registries: 5 pass, 1 warn, 0 fail, 0 review                    |
+|    ntp: 4 pass, 0 warn, 0 fail, 0 review                                     |
 |    other requirements: 0 pass, 0 warn, 0 fail, 1 review                      |
 |                                                                              |
 |  Needs attention                                                             |

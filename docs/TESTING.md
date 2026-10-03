@@ -1,6 +1,8 @@
 # Testing
 
-The checker runtime needs no Python. The regression suite uses Python 3's standard-library `unittest` to invoke Bash and inspect JSON. It writes isolated fixtures only below `reports/`, removes its own fixtures, and makes no network calls.
+The checker runtime needs no Python. The regression suite uses Python 3's standard-library `unittest` to invoke Bash and inspect JSON. It writes isolated fixtures only below `reports/`, removes its own fixtures, and makes no external network calls. NTP tests exchange real UDP datagrams on IPv4/IPv6 loopback only.
+
+NTP regressions cover valid NTPv3/v4 replies, malformed/truncated/untrusted bytes, origin mismatch, wrong mode/version/stratum, zero transmit timestamp, unsynchronized servers, Kiss-o'-Death, response deadlines, address sampling/recovery, missing tools, public versus explicit target impact, override validation, and terminal/TXT/JSON readiness consistency. Context7's Datadog NTP overview and Agent troubleshooting references were checked on 2026-10-03, with the official Agent implementation and RFC 5905 for packet behavior.
 
 The suite also checks that the generated standalone bundle matches its source files, then tests the exact README one-command invocation with a mock downloader. It covers rejected partial/empty downloads, preserved input and exit codes, argument forwarding, and a complete interactive scan from a directory without a checkout. See [distribution design](DISTRIBUTION.md).
 

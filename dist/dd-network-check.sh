@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=132353f76637f6bf1e3fff60e6cd797c22c765fb61a139a99bd0fc2d6cd29b49
+# source_sha256=9878da14c29ae3d3131035830f44364b596cd201691432bec43257feeae49c99
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -65,6 +65,8 @@ reset_result() {
        [redirect_http]=SKIPPED [redirect_http_detail]='No reachable redirect response'
        [redirect_http_status]='' [redirect_final_url]='' [redirect_host]='' [redirect_remote_ip]=''
        [redirect_curl_exit]='' [redirect_curl_tls]=SKIPPED [redirect_redirect_count]=0 [redirect_time_total]=''
+       [ntp]='NOT APPLICABLE' [ntp_detail]='Not an NTP endpoint' [ntp_attempts]='' [ntp_ip]=''
+       [ntp_version]='' [ntp_stratum]='' [ntp_leap]='' [ntp_kiss_code]='' [ntp_target_source]=''
        [notes]='' [status]=PASS [impact]=PASS [classification]='DIRECT TEST')
 }
 proxy_snapshot() {
@@ -128,7 +130,7 @@ validate_manifest() {
         ids[$id]=1
         case $protocol in https|tcp|udp) ;; *) error "Invalid protocol at line $line_no"; return 1;; esac
         case $os in all|linux|windows|desktop) ;; *) error "Invalid OS at line $line_no"; return 1;; esac
-        case $test_type in full|server_sanity_only|wildcard|version|manual|excluded) ;; *) error "Invalid test type at line $line_no"; return 1;; esac
+        case $test_type in full|server_sanity_only|wildcard|version|ntp|manual|excluded) ;; *) error "Invalid test type at line $line_no"; return 1;; esac
         case $requirement in required|informational) ;; *) error "Invalid requirement at line $line_no"; return 1;; esac
         [[ $path =~ ^/[a-zA-Z0-9/_.-]*$ && $source == https://* && $source != *' '* && -n $sites && -n $template ]] || { error "Invalid path/source/scope at line $line_no"; return 1; }
         [[ $sites != ,* && $sites != *, && $sites != *,,* ]] || { error "Invalid site list at line $line_no"; return 1; }
@@ -141,7 +143,11 @@ validate_manifest() {
         [[ $test_type != wildcard ]] || host=${host#\*.}
         if [[ $test_type != manual && $test_type != excluded ]]; then
             valid_host "$host" || { error "Invalid hostname/template at line $line_no"; return 1; }
-            [[ $protocol == https ]] || { error "Only HTTPS active probes supported at line $line_no"; return 1; }
+            if [[ $test_type == ntp ]]; then
+                [[ $protocol == udp && $port == 123 ]] || { error "NTP requires UDP/123 at line $line_no"; return 1; }
+            else
+                [[ $protocol == https ]] || { error "Unsupported active protocol at line $line_no"; return 1; }
+            fi
         fi
         [[ $test_type != wildcard || $template == \*.* ]] || return 1
         [[ $test_type != version || $template == *'{version}'* ]] || return 1
@@ -202,7 +208,10 @@ registry-47|container_registries|Container image registry|asia.gcr.io|443|https|
 registry-48|container_registries|Container image registry|datadoghq.azurecr.io|443|https|all|full|informational|all|/|Conditional on chosen registry; GET reachability does not validate registry authentication or image pulls|https://docs.datadoghq.com/agent/configuration/network/
 registry-49|container_registries|Container image registry|public.ecr.aws|443|https|all|full|informational|all|/datadog|Conditional on chosen registry; GET reachability does not validate registry authentication or image pulls|https://docs.datadoghq.com/agent/configuration/network/
 registry-50|container_registries|Container image registry|docker.io|443|https|all|full|informational|all|/datadog|Conditional on chosen registry; GET reachability does not validate registry authentication or image pulls|https://docs.datadoghq.com/agent/configuration/network/
-ntp|other_requirements|NTP targets from Agent configuration|configuration-dependent|123|udp|all|manual|informational|all|/|UDP/123 is outside HTTPS v0.1; target may be overridden; review configured NTP servers manually|https://docs.datadoghq.com/agent/configuration/network/
+ntp0|ntp|Datadog NTP public fallback 0|0.datadog.pool.ntp.org|123|udp|all|ntp|informational|all|/|Documented public fallback; Agent may use private cloud or configured servers; use --ntp-host for customer targets|https://docs.datadoghq.com/integrations/ntp/
+ntp1|ntp|Datadog NTP public fallback 1|1.datadog.pool.ntp.org|123|udp|all|ntp|informational|all|/|Documented public fallback; Agent may use private cloud or configured servers; use --ntp-host for customer targets|https://docs.datadoghq.com/integrations/ntp/
+ntp2|ntp|Datadog NTP public fallback 2|2.datadog.pool.ntp.org|123|udp|all|ntp|informational|all|/|Documented public fallback; Agent may use private cloud or configured servers; use --ntp-host for customer targets|https://docs.datadoghq.com/integrations/ntp/
+ntp3|ntp|Datadog NTP public fallback 3|3.datadog.pool.ntp.org|123|udp|all|ntp|informational|all|/|Documented public fallback; Agent may use private cloud or configured servers; use --ntp-host for customer targets|https://docs.datadoghq.com/integrations/ntp/
 autoscaling|other_requirements|Custom Agent Autoscaling|destination-unspecified|8443|tcp|all|manual|informational|us1,eu1|/|Network page names port 8443 without destination; do not invent a hostname|https://docs.datadoghq.com/agent/configuration/network/
 rc-probe|other_requirements|Remote Configuration protocol-development test|destination-unspecified|8042|tcp|all|manual|informational|us1,eu1|/|Network page names port 8042 without destination; do not invent a hostname|https://docs.datadoghq.com/agent/configuration/network/
 inbound-agent|excluded|inbound-agent|not-applicable|443|https|all|excluded|informational|all|/|Local Agent receiver/debug/IPC ports are inbound; NOT APPLICABLE TO SERVER-SIDE PREFLIGHT|https://docs.datadoghq.com/agent/configuration/network/
@@ -247,10 +256,11 @@ detect_agent_version() {
     return 0
 }
 classify_result() {
-    local field
+    local field fields='dns cname tcp tls http'
     if [[ ${E[classification]} == 'NOT APPLICABLE' ]]; then E[status]='NOT APPLICABLE'; E[impact]=PASS; return; fi
     E[status]=PASS
-    for field in dns cname tcp tls http; do
+    [[ ${E[test_type]-} != ntp ]] || fields='dns ntp'
+    for field in $fields; do
         case ${E[$field]} in
             FAIL) E[status]=FAIL;;
             WARN|SKIPPED|'NOT DIRECTLY TESTABLE') [[ ${E[status]} == FAIL ]] || E[status]=WARN;;
@@ -258,7 +268,7 @@ classify_result() {
     done
     E[impact]=${E[status]}
     if [[ $requirement == informational && ${E[impact]} == FAIL ]]; then E[impact]=WARN; fi
-    if ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
+    if [[ ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
         E[impact]=WARN; add_note 'Environment-route HTTPS succeeded despite direct-path failures; proxy/NO_PROXY routing and Agent proxy configuration require review'
     fi
 }
@@ -359,6 +369,175 @@ tcp_check() {
     E[tcp_detail]="$good successful, $bad other failures, $unavailable_v6 IPv6 network-unreachable probes; direct path"
 }
 # END GENERATED MODULE: lib/tcp.sh
+# BEGIN GENERATED MODULE: lib/ntp.sh
+#!/usr/bin/env bash
+# NTP is direct UDP, never an HTTP/proxy or TCP-port test. Binary data stays in
+# printf/socket/dd/od; Bash variables hold only octal escapes or decimal bytes.
+# shellcheck disable=SC2154,SC2034
+valid_ntp_host() {
+    local address=$1 part count=0
+    local -a parts=()
+    valid_host "$address" && return 0
+    [[ $address =~ ^[a-zA-Z0-9]([a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?$ ]] && return 0
+    is_ip "$address" || return 1
+    [[ $address == *:* ]] || return 0
+    address=${address%%%*}
+    [[ $address != *:::* ]] || return 1
+    IFS=: read -r -a parts <<< "$address"
+    for part in "${parts[@]}"; do
+        [[ -n $part ]] || continue
+        [[ $part =~ ^[0-9a-fA-F]{1,4}$ ]] || return 1
+        ((count+=1))
+    done
+    if [[ $address == *::* ]]; then
+        [[ ${address#*::} != *::* ]] && ((count<8))
+    else
+        [[ $address != :* && $address != *: ]] && ((count==8))
+    fi
+}
+add_ntp_host() {
+    local host=$1 existing
+    if ! valid_ntp_host "$host"; then
+        error 'Invalid --ntp-host; use a hostname or unbracketed IP without a port'; return 1
+    fi
+    for existing in "${NTP_HOSTS[@]}"; do [[ $existing != "$host" ]] || return 0; done
+    ((${#NTP_HOSTS[@]}<8)) || { error 'At most 8 distinct --ntp-host targets are supported'; return 1; }
+    NTP_HOSTS+=("$host")
+}
+select_ntp_targets() {
+    local line host index=0
+    local -a selected=()
+    NTP_TARGET_SOURCE=documented-public-fallback
+    ((${#NTP_HOSTS[@]})) || return 0
+    NTP_TARGET_SOURCE=explicit-customer-targets
+    for line in "${RECORDS[@]}"; do
+        parse_record "$line"
+        if [[ $test_type == ntp ]]; then
+            # Insert overrides at the first NTP record, preserving category order.
+            if ((index==0)); then
+                for host in "${NTP_HOSTS[@]}"; do
+                    ((index+=1))
+                    selected+=("ntp-custom-$index|ntp|Customer NTP target|$host|123|udp|all|ntp|required|all|/|Explicit customer target; no public fallback; connectivity only, clock synchronization not assessed|https://docs.datadoghq.com/integrations/ntp/")
+                done
+            fi
+        else selected+=("$line"); fi
+    done
+    RECORDS=("${selected[@]}")
+}
+ntp_resolve() {
+    local host=$1 field
+    E[ntp]=SKIPPED; E[ntp_detail]='Not attempted'
+    for field in tcp tls http; do
+        E[$field]='NOT APPLICABLE'; E[${field}_detail]='NTP uses UDP; this HTTPS stage does not apply'
+    done
+    E[curl_tls]='NOT APPLICABLE'
+    if is_ip "$host"; then
+        E[ips]=$host; E[dns]=PASS; E[dns_detail]='Explicit IP target; DNS lookup not required'
+        E[cname]='NOT APPLICABLE'; E[cname_detail]='Explicit IP target'
+    else dns_check "$host"; fi
+}
+ntp_prepare_request() {
+    local seconds fraction i value escaped
+    seconds=$(date +%s) || return 1
+    [[ $seconds =~ ^[0-9]+$ ]] || return 1
+    seconds=$(((seconds+2208988800)&0xffffffff))
+    fraction=$(((RANDOM<<17) ^ (RANDOM<<2) ^ (RANDOM&3)))
+    NTP_PACKET='\033' # Version 3, client mode; matches the Agent default.
+    for ((i=1;i<40;i++)); do NTP_PACKET+='\000'; done
+    NTP_NONCE=()
+    for value in "$seconds" "$fraction"; do
+        for ((i=24;i>=0;i-=8)); do
+            NTP_NONCE+=("$(((value>>i)&255))")
+            printf -v escaped '\\%03o' "$(((value>>i)&255))"
+            NTP_PACKET+=$escaped
+        done
+    done
+}
+ntp_probe() {
+    # Connected UDP socket constrains the response peer. Read one datagram only;
+    # the outer deadline covers opening, sending, receiving and byte conversion.
+    LC_ALL=C timeout -k 1 "$NTP_TIMEOUT" bash -c '
+        set -o pipefail
+        exec 3<>"/dev/udp/$1/$2" || exit 10
+        printf "%b" "$3" >&3 || exit 11
+        dd bs=512 count=1 status=none <&3 | od -An -v -tu1
+    ' bash "$1" "$port" "$NTP_PACKET" 2>&1
+}
+ntp_validate_response() {
+    local token i mode version leap stratum nonzero=0 code=''
+    local -a bytes=() tokens=()
+    NTP_REPLY_STATUS=FAIL; NTP_REPLY_DETAIL='Malformed or truncated NTP response'
+    # Validate before any arithmetic/index use; socket content is untrusted.
+    read -r -a tokens <<< "${1//$'\n'/ }"
+    for token in "${tokens[@]}"; do
+        [[ $token =~ ^[0-9]{1,3}$ ]] || return 0
+        ((10#$token<=255)) || return 0
+        bytes+=("$((10#$token))")
+    done
+    ((${#bytes[@]}>=48 && ${#bytes[@]}<=512)) || return 0
+    mode=$((bytes[0]&7)); version=$(((bytes[0]>>3)&7)); leap=$((bytes[0]>>6)); stratum=${bytes[1]}
+    if ((mode!=4 || (version!=3 && version!=4))); then NTP_REPLY_DETAIL='Unexpected NTP mode or version'; return 0; fi
+    for ((i=0;i<8;i++)); do
+        if ((bytes[i+24]!=NTP_NONCE[i])); then NTP_REPLY_DETAIL='NTP originate timestamp does not match request'; return 0; fi
+    done
+    E[ntp_version]=$version; E[ntp_leap]=$leap; E[ntp_stratum]=$stratum
+    if ((stratum==0)); then
+        for ((i=12;i<16;i++)); do
+            if ((bytes[i]>=32 && bytes[i]<=126)); then printf -v token '\\%03o' "${bytes[i]}"; printf -v token '%b' "$token"; code+=$token
+            else code+='?'; fi
+        done
+        E[ntp_kiss_code]=$code
+        NTP_REPLY_STATUS=WARN; NTP_REPLY_DETAIL="NTP server replied with Kiss-o'-Death ($code); no usable time response"
+        return 0
+    fi
+    if ((stratum>16)); then NTP_REPLY_DETAIL='Invalid NTP stratum'; return 0; fi
+    if ((stratum==16 || leap==3)); then
+        NTP_REPLY_STATUS=WARN; NTP_REPLY_DETAIL='NTP server replied but reports an unsynchronized clock'; return 0
+    fi
+    for ((i=40;i<48;i++)); do ((nonzero |= bytes[i])); done
+    if ((nonzero==0)); then NTP_REPLY_DETAIL='NTP transmit timestamp is zero'; return 0; fi
+    NTP_REPLY_STATUS=PASS; NTP_REPLY_DETAIL="Valid matched NTPv$version server reply; stratum $stratum; direct UDP/$port"
+}
+ntp_check() {
+    local ip output rc count=0 failed=0 unreachable=0 dep result detail
+    for dep in timeout dd od; do
+        if ! have "$dep"; then E[ntp_detail]="$dep unavailable; no NTP probe issued"; return 0; fi
+    done
+    if [[ -z ${E[ips]} ]]; then
+        E[ntp_detail]='No resolved NTP address; no UDP request issued'
+        [[ ${E[dns]} != FAIL ]] || E[ntp]=FAIL
+        return 0
+    fi
+    add_note 'NTP checks unauthenticated protocol reachability, not host clock offset or synchronization; HTTP proxies do not apply'
+    while IFS= read -r ip; do
+        is_ip "$ip" || continue
+        ((count+=1)); ((count<=NTP_MAX_IP_PROBES)) || break
+        if ! ntp_prepare_request; then E[ntp_detail]='Unable to construct NTP request; no probe issued'; return 0; fi
+        E[ntp_version]=''; E[ntp_stratum]=''; E[ntp_leap]=''; E[ntp_kiss_code]=''
+        output=$(ntp_probe "$ip"); rc=$?
+        result=FAIL; detail='UDP transport failed; filtering is not established'
+        case $rc in
+            0) ntp_validate_response "$output"; result=$NTP_REPLY_STATUS; detail=$NTP_REPLY_DETAIL;;
+            124|137) detail="No NTP response within ${NTP_TIMEOUT}s; filtering is not established";;
+            *) if [[ $ip == *:* && $output == *'Network is unreachable'* ]]; then
+                   detail='IPv6 network unreachable'; ((unreachable+=1))
+               elif ((rc==10)); then detail='UDP socket could not open; route or Bash UDP support unavailable'; fi;;
+        esac
+        E[ntp_attempts]+="$ip $result - $detail"$'\n'
+        E[ntp]=$result; E[ntp_detail]=$detail
+        if [[ $result == PASS ]]; then
+            E[ntp_ip]=$ip
+            if ((failed>unreachable)); then E[ntp]=WARN; add_note 'NTP replied after an earlier failed address; see probe history'; fi
+            break
+        fi
+        # KoD/unsynchronized servers replied: do not retry a rate-limited server.
+        if [[ $result == WARN ]]; then E[ntp_ip]=$ip; break; fi
+        ((failed+=1))
+    done <<< "${E[ips]}"
+    if ((count==0)); then E[ntp]=SKIPPED; E[ntp_detail]='No usable resolved address'; fi
+    add_note "NTP probes at most $NTP_MAX_IP_PROBES resolved addresses and stops on a matched server response; remaining addresses untested"
+}
+# END GENERATED MODULE: lib/ntp.sh
 # BEGIN GENERATED MODULE: lib/tls.sh
 #!/usr/bin/env bash
 # E and port are supplied by the caller.
@@ -887,6 +1066,9 @@ terminal_intro() {
     printf '  Scope: all destinations\n'
     terminal_wrap "Agent: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE:-none})" '  ' '         '
     [[ -z ${AGENT_VERSION_DETAIL-} ]] || terminal_wrap "$AGENT_VERSION_DETAIL" '  ' '  '
+    if [[ -n ${NTP_TARGET_SOURCE-} ]]; then
+        terminal_wrap "NTP: ${NTP_TARGET_SOURCE//-/ } (UDP/123)" '  ' '       '
+    fi
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -944,6 +1126,12 @@ terminal_endpoint() {
         return 0
     fi
     state=${E[impact]}
+    if [[ ${E[test_type]-} == ntp ]]; then
+        terminal_row "$state" "${E[hostname]}" "$(terminal_stage "${E[dns]}")" '--' '--' '--'
+        terminal_wrap "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}" '        ' '        '
+        [[ $NTP_TARGET_SOURCE != documented-public-fallback || $state == PASS ]] || terminal_note 'Public fallback only; use --ntp-host for private/cloud NTP.'
+        return 0
+    fi
     http_display=${E[http_status]:-${E[http]}}
     if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
         http_display+=">${E[redirect_http_status]:-${E[redirect_http]}}"
@@ -990,7 +1178,7 @@ terminal_capture_endpoint() {
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     index=${#TERMINAL_ORDER[@]}
     TERMINAL_ORDER+=("$category")
-    for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
+    for field in classification test_type impact hostname dns cname tcp tls http ntp http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail ntp_detail notes; do
         TERMINAL_SNAP["$index:$field"]=${E[$field]-}
     done
     state=${E[impact]}
@@ -1076,7 +1264,7 @@ terminal_summary_reason() {
             printf '%s unexpected redirect(s); inspect proxy' "$warned"
             return
         fi
-        for field in dns tcp tls http; do
+        for field in dns tcp tls http ntp; do
             if [[ ${TERMINAL_SNAP["$index:$field"]-} == WARN ]]; then
                 printf '%s %s warning(s); see TXT report' "$warned" "${field^^}"
                 return
@@ -1171,6 +1359,12 @@ endpoint_json() {
     printf ',"detail":'; json_string "${E[cname_detail]}"; printf '}'
     printf ',"cnames":'; json_lines "${E[cnames]}"
     printf ',"resolved_ips":'; json_lines "${E[ips]}"
+    printf ',"ntp_result":{"status":'; json_string "${E[ntp]}"
+    printf ',"detail":'; json_string "${E[ntp_detail]}"
+    for field in ntp_ip ntp_version ntp_stratum ntp_leap ntp_kiss_code ntp_target_source; do
+        printf ','; json_string "${field#ntp_}"; printf ':'; json_string "${E[$field]}"
+    done
+    printf ',"attempts":'; json_lines "${E[ntp_attempts]}"; printf '}'
     printf ',"tcp_result":{"status":'; json_string "${E[tcp]}"
     printf ',"detail":'; json_string "${E[tcp_detail]}"
     printf ',"attempts":'; json_lines "${E[tcp_attempts]}"; printf '}'
@@ -1210,6 +1404,12 @@ report_endpoint() {
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
+    if [[ ${E[test_type]} == ntp ]]; then
+        emit "NTP UDP/$port     ${E[ntp]} - ${E[ntp_detail]}"
+        emit "NTP target source ${E[ntp_target_source]}"
+        emit "NTP reply         version=${E[ntp_version]:-unknown}, stratum=${E[ntp_stratum]:-unknown}, leap=${E[ntp_leap]:-unknown}, kiss_code=${E[ntp_kiss_code]:-none}"
+        while IFS= read -r value; do [[ -z $value ]] || emit "NTP probe         $value"; done <<< "${E[ntp_attempts]}"
+    fi
     [[ -z ${E[ips]} ]] || emit "Resolved IPs     ${E[ips]//$'\n'/, }"
     value=${E[cnames]%$'\n'}; [[ -z $value ]] || emit "CNAME chain      ${value//$'\n'/ -> }"
     value=${E[tcp_attempts]%$'\n'}; [[ -z $value ]] || emit "TCP/$port probes   ${value//$'\n'/; }"
@@ -1244,7 +1444,7 @@ report_endpoint() {
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
               value="${E[hostname]}:"
-              for field in dns tcp tls http; do
+              for field in dns tcp tls http ntp; do
                   [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
               done
               BLOCKERS+=("$value");;
@@ -1280,7 +1480,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.3","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.4","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -1288,6 +1488,7 @@ report_finish() {
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
         printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
         printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
+        printf ',"ntp_target_source":'; json_string "$NTP_TARGET_SOURCE"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"
         printf ',"parameter":'; json_string "${SITE_DOMAINS[$SITE]}"; printf '},"categories":{'
@@ -1314,20 +1515,23 @@ report_finish() {
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.4
+TOOL_VERSION=0.1.5
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
+NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
     SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    declare -ga NTP_HOSTS=()
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
+            --ntp-host) (($#>=2)) || { error '--ntp-host requires a hostname or IP'; return 3; }; add_ntp_host "$2" || return 3; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan using the latest stable Agent release.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets); UDP/123.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -1337,6 +1541,7 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
+    select_ntp_targets
     TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
     TERMINAL_WIDTH=$(terminal_width)
     if [[ -z $SITE ]]; then
@@ -1367,7 +1572,7 @@ main() {
     emit "Version    : $TOOL_VERSION"
     emit 'Dependency availability'
     DEPENDENCY_JSON='{'
-    for dep in bash curl getent dig nslookup openssl timeout nc; do
+    for dep in bash curl getent dig nslookup openssl timeout nc dd od; do
         state=unavailable; have "$dep" && state=available
         emit "$(printf '%-12s %s' "$dep" "$state")"
         if [[ $state == available ]]; then available_tools+=" $dep"
@@ -1379,6 +1584,8 @@ main() {
     emit ''; emit 'Proxy Environment'; proxy_snapshot
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
+    emit "NTP targets: $NTP_TARGET_SOURCE; direct UDP/123; HTTP proxy settings do not apply."
+    [[ $NTP_TARGET_SOURCE != documented-public-fallback ]] || emit 'Agent may select private cloud or configured NTP servers; use --ntp-host to test those instead.'
     detect_agent_version || return 3
     emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
     [[ -z $AGENT_VERSION_DETAIL ]] || emit "$AGENT_VERSION_DETAIL"
@@ -1404,6 +1611,7 @@ main() {
         fi
         E[id]=$id; E[category]=$category; E[label]=$label; E[hostname]=$host; E[port]=$port
         E[protocol]=$protocol; E[applicable_os]=$os; E[test_type]=$test_type; E[requirement]=$requirement; E[source]=$source; E[notes]=$notes
+        [[ $test_type != ntp ]] || E[ntp_target_source]=$NTP_TARGET_SOURCE
         if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             E[classification]='NOT APPLICABLE'
             for field in dns cname tcp tls http; do E[$field]='NOT APPLICABLE'; E[${field}_detail]='Outside Linux/site/server scope'; done
@@ -1416,6 +1624,10 @@ main() {
             if [[ $test_type == version ]]; then
                 add_note "$AGENT_VERSION_DETAIL"
             fi
+        elif [[ $test_type == ntp ]]; then
+            terminal_category_start
+            TERMINAL_PROGRESS_HOST=$host; terminal_progress
+            ntp_resolve "$host"; ntp_check
         else
             if [[ $test_type == version ]]; then host=${host//\{version\}/$AGENT_VERSION}; E[hostname]=$host; fi
             terminal_category_start

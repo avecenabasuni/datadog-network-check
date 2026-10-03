@@ -262,6 +262,9 @@ terminal_intro() {
     printf '  Scope: all destinations\n'
     terminal_wrap "Agent: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE:-none})" '  ' '         '
     [[ -z ${AGENT_VERSION_DETAIL-} ]] || terminal_wrap "$AGENT_VERSION_DETAIL" '  ' '  '
+    if [[ -n ${NTP_TARGET_SOURCE-} ]]; then
+        terminal_wrap "NTP: ${NTP_TARGET_SOURCE//-/ } (UDP/123)" '  ' '       '
+    fi
 }
 terminal_stage() {
     case $1 in PASS) printf ok;; WARN) printf warn;; FAIL) printf fail;; *) printf -- '--';; esac
@@ -319,6 +322,12 @@ terminal_endpoint() {
         return 0
     fi
     state=${E[impact]}
+    if [[ ${E[test_type]-} == ntp ]]; then
+        terminal_row "$state" "${E[hostname]}" "$(terminal_stage "${E[dns]}")" '--' '--' '--'
+        terminal_wrap "NTP UDP/${E[port]}: ${E[ntp]} - ${E[ntp_detail]}" '        ' '        '
+        [[ $NTP_TARGET_SOURCE != documented-public-fallback || $state == PASS ]] || terminal_note 'Public fallback only; use --ntp-host for private/cloud NTP.'
+        return 0
+    fi
     http_display=${E[http_status]:-${E[http]}}
     if [[ ${E[redirect_http_detail]} != 'No reachable redirect response' ]]; then
         http_display+=">${E[redirect_http_status]:-${E[redirect_http]}}"
@@ -365,7 +374,7 @@ terminal_capture_endpoint() {
     [[ ${E[classification]} != 'NOT APPLICABLE' ]] || return 0
     index=${#TERMINAL_ORDER[@]}
     TERMINAL_ORDER+=("$category")
-    for field in classification test_type impact hostname dns cname tcp tls http http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail notes; do
+    for field in classification test_type impact hostname dns cname tcp tls http ntp http_status redirect_http_detail redirect_http_status redirect_http redirect_final_url dns_detail cname_detail tcp_detail tls_detail http_detail ntp_detail notes; do
         TERMINAL_SNAP["$index:$field"]=${E[$field]-}
     done
     state=${E[impact]}
@@ -451,7 +460,7 @@ terminal_summary_reason() {
             printf '%s unexpected redirect(s); inspect proxy' "$warned"
             return
         fi
-        for field in dns tcp tls http; do
+        for field in dns tcp tls http ntp; do
             if [[ ${TERMINAL_SNAP["$index:$field"]-} == WARN ]]; then
                 printf '%s %s warning(s); see TXT report' "$warned" "${field^^}"
                 return
@@ -546,6 +555,12 @@ endpoint_json() {
     printf ',"detail":'; json_string "${E[cname_detail]}"; printf '}'
     printf ',"cnames":'; json_lines "${E[cnames]}"
     printf ',"resolved_ips":'; json_lines "${E[ips]}"
+    printf ',"ntp_result":{"status":'; json_string "${E[ntp]}"
+    printf ',"detail":'; json_string "${E[ntp_detail]}"
+    for field in ntp_ip ntp_version ntp_stratum ntp_leap ntp_kiss_code ntp_target_source; do
+        printf ','; json_string "${field#ntp_}"; printf ':'; json_string "${E[$field]}"
+    done
+    printf ',"attempts":'; json_lines "${E[ntp_attempts]}"; printf '}'
     printf ',"tcp_result":{"status":'; json_string "${E[tcp]}"
     printf ',"detail":'; json_string "${E[tcp_detail]}"
     printf ',"attempts":'; json_lines "${E[tcp_attempts]}"; printf '}'
@@ -585,6 +600,12 @@ report_endpoint() {
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
+    if [[ ${E[test_type]} == ntp ]]; then
+        emit "NTP UDP/$port     ${E[ntp]} - ${E[ntp_detail]}"
+        emit "NTP target source ${E[ntp_target_source]}"
+        emit "NTP reply         version=${E[ntp_version]:-unknown}, stratum=${E[ntp_stratum]:-unknown}, leap=${E[ntp_leap]:-unknown}, kiss_code=${E[ntp_kiss_code]:-none}"
+        while IFS= read -r value; do [[ -z $value ]] || emit "NTP probe         $value"; done <<< "${E[ntp_attempts]}"
+    fi
     [[ -z ${E[ips]} ]] || emit "Resolved IPs     ${E[ips]//$'\n'/, }"
     value=${E[cnames]%$'\n'}; [[ -z $value ]] || emit "CNAME chain      ${value//$'\n'/ -> }"
     value=${E[tcp_attempts]%$'\n'}; [[ -z $value ]] || emit "TCP/$port probes   ${value//$'\n'/; }"
@@ -619,7 +640,7 @@ report_endpoint() {
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
               value="${E[hostname]}:"
-              for field in dns tcp tls http; do
+              for field in dns tcp tls http ntp; do
                   [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
               done
               BLOCKERS+=("$value");;
@@ -655,7 +676,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.3","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.4","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -663,6 +684,7 @@ report_finish() {
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
         printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
         printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
+        printf ',"ntp_target_source":'; json_string "$NTP_TARGET_SOURCE"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"
         printf ',"parameter":'; json_string "${SITE_DOMAINS[$SITE]}"; printf '},"categories":{'

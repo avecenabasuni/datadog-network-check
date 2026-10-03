@@ -9,6 +9,8 @@ source "$ROOT/lib/utils.sh" || exit 3
 source "$ROOT/lib/dns.sh" || exit 3
 # shellcheck source=lib/tcp.sh
 source "$ROOT/lib/tcp.sh" || exit 3
+# shellcheck source=lib/ntp.sh
+source "$ROOT/lib/ntp.sh" || exit 3
 # shellcheck source=lib/tls.sh
 source "$ROOT/lib/tls.sh" || exit 3
 # shellcheck source=lib/http.sh
@@ -19,20 +21,23 @@ source "$ROOT/lib/reporting.sh" || exit 3
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.4
+TOOL_VERSION=0.1.5
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
+NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
     SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    declare -ga NTP_HOSTS=()
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
+            --ntp-host) (($#>=2)) || { error '--ntp-host requires a hostname or IP'; return 3; }; add_ntp_host "$2" || return 3; shift 2;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--quiet] [--no-banner]\nDefault: interactive site selection followed by a full scan using the latest stable Agent release.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets); UDP/123.\n--quiet uses a compact terminal header; --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
@@ -42,6 +47,7 @@ main() {
     done
     ((missing==0)) || return 3
     load_sites && validate_manifest || return 3
+    select_ntp_targets
     TERMINAL_TTY=0; [[ -t 1 ]] && TERMINAL_TTY=1
     TERMINAL_WIDTH=$(terminal_width)
     if [[ -z $SITE ]]; then
@@ -72,7 +78,7 @@ main() {
     emit "Version    : $TOOL_VERSION"
     emit 'Dependency availability'
     DEPENDENCY_JSON='{'
-    for dep in bash curl getent dig nslookup openssl timeout nc; do
+    for dep in bash curl getent dig nslookup openssl timeout nc dd od; do
         state=unavailable; have "$dep" && state=available
         emit "$(printf '%-12s %s' "$dep" "$state")"
         if [[ $state == available ]]; then available_tools+=" $dep"
@@ -84,6 +90,8 @@ main() {
     emit ''; emit 'Proxy Environment'; proxy_snapshot
     emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
+    emit "NTP targets: $NTP_TARGET_SOURCE; direct UDP/123; HTTP proxy settings do not apply."
+    [[ $NTP_TARGET_SOURCE != documented-public-fallback ]] || emit 'Agent may select private cloud or configured NTP servers; use --ntp-host to test those instead.'
     detect_agent_version || return 3
     emit "Agent version used: ${AGENT_VERSION_DISPLAY:-not determined} (${AGENT_VERSION_SOURCE})"
     [[ -z $AGENT_VERSION_DETAIL ]] || emit "$AGENT_VERSION_DETAIL"
@@ -109,6 +117,7 @@ main() {
         fi
         E[id]=$id; E[category]=$category; E[label]=$label; E[hostname]=$host; E[port]=$port
         E[protocol]=$protocol; E[applicable_os]=$os; E[test_type]=$test_type; E[requirement]=$requirement; E[source]=$source; E[notes]=$notes
+        [[ $test_type != ntp ]] || E[ntp_target_source]=$NTP_TARGET_SOURCE
         if [[ $os == windows || $os == desktop || $test_type == excluded || ( $sites != all && ,$sites, != *",$SITE,"* ) ]]; then
             E[classification]='NOT APPLICABLE'
             for field in dns cname tcp tls http; do E[$field]='NOT APPLICABLE'; E[${field}_detail]='Outside Linux/site/server scope'; done
@@ -121,6 +130,10 @@ main() {
             if [[ $test_type == version ]]; then
                 add_note "$AGENT_VERSION_DETAIL"
             fi
+        elif [[ $test_type == ntp ]]; then
+            terminal_category_start
+            TERMINAL_PROGRESS_HOST=$host; terminal_progress
+            ntp_resolve "$host"; ntp_check
         else
             if [[ $test_type == version ]]; then host=${host//\{version\}/$AGENT_VERSION}; E[hostname]=$host; fi
             terminal_category_start

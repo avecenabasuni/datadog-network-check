@@ -1,4 +1,4 @@
- ▌ DATADOG NETWORK PREFLIGHT               v0.1.4
+ ▌ DATADOG NETWORK PREFLIGHT               v0.1.5
  ────────────────────────────────────────────────
  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datado…
 
@@ -6,6 +6,7 @@
   Tools: curl dig nslookup openssl nc
   Scope: all destinations
   Agent: 7.84.1 (latest-release)
+  NTP: documented public fallback (UDP/123)
 
   STATUS DESTINATION
         DNS  TCP  TLS  HTTP
@@ -47,6 +48,24 @@
        ↳ Allow docs.datadoghq.com,
          accounts.google.com.
 
+ NTP ────────────────────────────────────────────
+  PASS   0.datadog.pool.ntp.org
+        DNS ok  TCP --  TLS --  HTTP --
+        NTP UDP/123: PASS - Valid matched NTPv3
+        server reply; stratum 2; direct UDP/123
+  PASS   1.datadog.pool.ntp.org
+        DNS ok  TCP --  TLS --  HTTP --
+        NTP UDP/123: PASS - Valid matched NTPv3
+        server reply; stratum 2; direct UDP/123
+  PASS   2.datadog.pool.ntp.org
+        DNS ok  TCP --  TLS --  HTTP --
+        NTP UDP/123: PASS - Valid matched NTPv3
+        server reply; stratum 2; direct UDP/123
+  PASS   3.datadog.pool.ntp.org
+        DNS ok  TCP --  TLS --  HTTP --
+        NTP UDP/123: PASS - Valid matched NTPv3
+        server reply; stratum 2; direct UDP/123
+
  OTHER REQUIREMENTS ─────────────────────────────
   REVIEW destination-unspecified
         DNS --  TCP --  TLS --  HTTP --
@@ -55,7 +74,7 @@
 ╭─ SUMMARY ──────────────────────────────────────╮
 │  ⚠  READY WITH WARNINGS                        │
 │                                                │
-│  ✔ 11 pass   ⚠ 1 warn                          │
+│  ✔ 15 pass   ⚠ 1 warn                          │
 │  ✖ 0 fail   ◌ 1 review                         │
 │                                                │
 │  By category                                   │
@@ -65,6 +84,7 @@
 │    rum: 2 pass, 0 warn, 0 fail, 0 review       │
 │    container registries: 5 pass, 1 warn, 0     │
 │      fail, 0 review                            │
+│    ntp: 4 pass, 0 warn, 0 fail, 0 review       │
 │    other requirements: 0 pass, 0 warn, 0 fail, │
 │      1 review                                  │
 │                                                │
