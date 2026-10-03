@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tool 0.1.8 explains recovered NTP warnings as a reply after an earlier address failed, retaining each attempt and server metadata. Prepare spinner frames before starting the helper and reset its signal traps to default, avoiding a reproduced Bash trap parser error and shutdown hang during frame rendering.
 - Tool 0.1.7 shows successful NTP endpoints as compact rows, consistent with other passing endpoints. Only WARN/FAIL rows show an NTP note. TXT and JSON retain full reply details.
 - Tool 0.1.6 fixes terminal warning attribution: a successful registry redirect no longer hides TCP/DNS/TLS warnings, and origin retry warnings retain the endpoint row. All visible terminal text uses periods instead of semicolons. The TTY spinner now refreshes every 120 ms during foreground probes, is stopped and reaped before results, and restores the cursor on normal exit or interruption. Probes remain sequential in the parent shell.
 - Add direct UDP/123 NTP probes for the four documented Datadog public fallback pools. Validate matched replies and report timeout, invalid-response, unsynchronized-server and Kiss-o'-Death results. Repeatable `--ntp-host` replaces pools with required customer targets; default pool failures remain informational. NTP ignores HTTP proxies and needs no Python or package installation. Tool version is 0.1.5; additive JSON schema 1.4 records NTP results, history and target provenance.

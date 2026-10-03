@@ -66,7 +66,7 @@ class NTPTests(unittest.TestCase):
         code += 'E[test_type]=ntp; port=123; ntp_resolve 192.0.2.1; '
         code += f"E[ips]=$'{ips}'; "
         code += 'ntp_probe() { ' + body + '; }; ntp_check; classify_result; '
-        code += 'printf "%s\\n%s\\n%s\\n%s" "${E[ntp]}" "${E[impact]}" "${E[ntp_attempts]}" "${E[notes]}"'
+        code += 'printf "%s\\n%s\\n%s\\n%s\\n%s" "${E[ntp]}" "${E[impact]}" "${E[ntp_attempts]}" "${E[notes]}" "${E[ntp_detail]}"'
         return self.run_code(code)
 
     def test_socket_success_without_reply_never_passes(self):
@@ -95,7 +95,9 @@ class NTPTests(unittest.TestCase):
         self.assertNotIn('192.0.2.2 PASS', output)
         output = self.probe('[[ $1 != 192.0.2.1 ]] || return 124; fake_reply', '192.0.2.1\\n192.0.2.2')
         self.assertTrue(output.startswith('WARN\nWARN\n'))
-        self.assertIn('earlier failed address', output)
+        self.assertIn('Reply received after an earlier address failed.', output)
+        self.assertIn('192.0.2.1 FAIL - No NTP response within 5s', output)
+        self.assertIn('192.0.2.2 PASS - Valid matched NTPv3 server reply', output)
 
     def test_ipv6_unreachable_with_working_ipv4_passes(self):
         output = self.probe('if [[ $1 == *:* ]]; then echo "Network is unreachable"; return 10; fi; fake_reply',
@@ -177,7 +179,7 @@ class NTPTests(unittest.TestCase):
                 self.assertFalse(thread.is_alive())
                 self.assertEqual(result.returncode, 0, result.stderr)
                 report = json.loads(result.stdout)
-                self.assertEqual(report['ntp_result']['status'], 'PASS')
+                self.assertEqual(report['ntp_result']['status'], 'PASS', report['ntp_result'])
                 self.assertEqual(report['ntp_result']['ip'], host)
                 self.assertEqual(report['ntp_result']['stratum'], '2')
                 self.assertEqual(report['status'], 'PASS')
@@ -236,15 +238,18 @@ class NTPIntegrationTests(unittest.TestCase):
         self.assertTrue(any('NTP:' in blocker for blocker in report['blockers']))
         self.assertNotIn('datadog.pool.ntp.org', result.stdout)
 
-    def test_valid_ntp_passes_terminal_txt_json_and_readiness(self):
+    def valid_reply_fixture(self, recovery=False):
         self.ntp_manifest()
-        self.write_command('timeout', r'''
+        if recovery:
+            self.write_command('getent', "printf '192.0.2.1 STREAM example.com\\n192.0.2.2 STREAM example.com\\n'")
+        self.write_command('timeout', (r'''
 shift 2; shift
 case $1 in
  getent) shift; getent "$@";;
  openssl) echo 'Verify return code: 0 (ok)';;
  bash)
    if [[ ${*: -2:1} == 123 ]]; then
+     FIRST_FAILURE
      read -r -a request <<< "$(printf '%b' "${!#}" | od -An -v -tu1 | tr '\n' ' ')"
      reply=(); for i in {0..47}; do reply+=(0); done
      reply[0]=28; reply[1]=2; reply[32]=1; reply[40]=1
@@ -253,7 +258,10 @@ case $1 in
    fi;;
  *) exit 1;;
 esac
-''')
+''').replace('FIRST_FAILURE', '[[ ${*: -3:1} != 192.0.2.1 ]] || exit 124' if recovery else ':'))
+
+    def test_valid_ntp_passes_terminal_txt_json_and_readiness(self):
+        self.valid_reply_fixture()
         result, report = self.scan(0)
         self.assertEqual(report['overall_status'], 'READY')
         self.assertEqual(report['direct_endpoint_counts'], {'pass': 2, 'warn': 0, 'fail': 0})
@@ -266,6 +274,21 @@ esac
         txt = next((self.root / 'reports').glob('*.txt')).read_text()
         self.assertIn('NTP UDP/123     PASS', txt)
         self.assertIn('stratum=2', txt)
+
+    def test_recovered_ntp_warning_explains_prior_failure_in_all_reports(self):
+        self.valid_reply_fixture(recovery=True)
+        result, report = self.scan(1)
+        ntp = report['endpoints'][1]['ntp_result']
+        detail = 'Reply received after an earlier address failed.'
+        self.assertEqual(ntp['status'], 'WARN')
+        self.assertEqual(ntp['detail'], detail)
+        self.assertEqual(ntp['stratum'], '2')
+        self.assertIn('WARN - ' + detail, ' '.join(result.stdout.split()))
+        self.assertNotIn(';', result.stdout)
+        txt = next((self.root / 'reports').glob('*.txt')).read_text()
+        self.assertIn('NTP UDP/123     WARN - ' + detail, txt)
+        self.assertIn('192.0.2.1 FAIL - No NTP response within 5s', txt)
+        self.assertIn('192.0.2.2 PASS - Valid matched NTPv3 server reply', txt)
 
     def test_active_udp_requires_ntp_type_and_port_123(self):
         for kind, port in [('full', 123), ('ntp', 443)]:

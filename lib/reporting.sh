@@ -183,27 +183,26 @@ terminal_full_host_note() {
         else printf '%s\n' "$line"; fi
     done < <(terminal_wrap "$1" "$prefix" "$continuation")
 }
-terminal_progress_frame() {
-    [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
-    local width label spinner
-    local -a frames=('|' '/' '-' $'\\')
-    width=$(terminal_width)
-    spinner=${frames[TERMINAL_PROGRESS_TICK%4]}
-    ((TERMINAL_PROGRESS_TICK+=1))
-    label="$spinner Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}"
-    printf '\r\033[2K\033[2m%s\033[0m' "$(terminal_truncate "$label" "$width")"
-}
 terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
     terminal_progress_clear
+    local width frame
+    local -a frames=()
+    width=$(terminal_width)
+    for frame in '|' '/' '-' $'\\'; do
+        frames+=("$(terminal_truncate "$frame Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}" "$width")")
+    done
     TERMINAL_PROGRESS_ACTIVE=1
     printf '\033[?25l'
-    terminal_progress_frame
+    printf '\r\033[2K\033[2m%s\033[0m' "${frames[0]}"
     have sleep || return 0
     (
-        trap - EXIT
-        trap 'exit 0' INT TERM HUP
-        while sleep 0.12; do terminal_progress_frame; done
+        trap - EXIT INT TERM HUP
+        tick=1
+        while sleep 0.12; do
+            printf '\r\033[2K\033[2m%s\033[0m' "${frames[tick%4]}"
+            ((tick+=1))
+        done
     ) &
     TERMINAL_PROGRESS_PID=$!
 }

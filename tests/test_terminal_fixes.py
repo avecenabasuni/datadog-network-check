@@ -2,6 +2,7 @@
 import os
 import pty
 import re
+import signal
 import subprocess
 import tempfile
 from pathlib import Path
@@ -101,6 +102,33 @@ sleep 0.2
         self.assertNotIn(b'Checking', output.split(b'FINAL_ROW', 1)[1])
         self.assertIn(b'\x1b[?25l', output)
         self.assertIn(b'\x1b[?25h', output)
+
+    def test_spinner_repeated_stop_during_frame_does_not_break_trap_parser(self):
+        code = test_checker.SOURCE + r'''
+terminal_color_enabled() { return 0; }
+trap terminal_progress_clear EXIT
+TERMINAL_TTY=1 TERMINAL_WIDTH=80
+TERMINAL_PROGRESS_DONE=37 TERMINAL_PROGRESS_TOTAL=54
+TERMINAL_PROGRESS_HOST=checkip.amazonaws.com
+for ((i=0;i<80;i++)); do
+    terminal_progress
+    worker=$TERMINAL_PROGRESS_PID
+    sleep 0.121
+    terminal_progress_clear
+    kill -0 "$worker" 2>/dev/null && exit 9
+done
+exit 0
+'''
+        process = subprocess.Popen(['bash', '-c', code], cwd=test_checker.ROOT,
+            stdout=subprocess.DEVNULL, stderr=subprocess.PIPE, start_new_session=True)
+        try:
+            _, stderr = process.communicate(timeout=20)
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            _, stderr = process.communicate()
+            self.fail('Spinner shutdown stalled: ' + stderr.decode())
+        self.assertEqual(process.returncode, 0, stderr.decode())
+        self.assertEqual(stderr, b'')
 
     def test_spinner_stops_before_new_endpoint_and_on_exit(self):
         with tempfile.TemporaryDirectory(dir=test_checker.ROOT / 'reports') as directory:

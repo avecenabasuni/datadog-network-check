@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=6f2c033296eefe11a7d7a57024c4eed6053f0afe6be97f86dd1f33f295516eea
+# source_sha256=8c437ac7709f242d50454424b23615b1bf40296aa9888429424b71def97e51a9
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -527,7 +527,9 @@ ntp_check() {
         E[ntp]=$result; E[ntp_detail]=$detail
         if [[ $result == PASS ]]; then
             E[ntp_ip]=$ip
-            if ((failed>unreachable)); then E[ntp]=WARN; add_note 'NTP replied after an earlier failed address; see probe history'; fi
+            if ((failed>unreachable)); then
+                E[ntp]=WARN; E[ntp_detail]='Reply received after an earlier address failed.'
+            fi
             break
         fi
         # KoD/unsynchronized servers replied: do not retry a rate-limited server.
@@ -987,27 +989,26 @@ terminal_full_host_note() {
         else printf '%s\n' "$line"; fi
     done < <(terminal_wrap "$1" "$prefix" "$continuation")
 }
-terminal_progress_frame() {
-    [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
-    local width label spinner
-    local -a frames=('|' '/' '-' $'\\')
-    width=$(terminal_width)
-    spinner=${frames[TERMINAL_PROGRESS_TICK%4]}
-    ((TERMINAL_PROGRESS_TICK+=1))
-    label="$spinner Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}"
-    printf '\r\033[2K\033[2m%s\033[0m' "$(terminal_truncate "$label" "$width")"
-}
 terminal_progress() {
     [[ ${TERMINAL_TTY-0} == 1 ]] && terminal_color_enabled || return 0
     terminal_progress_clear
+    local width frame
+    local -a frames=()
+    width=$(terminal_width)
+    for frame in '|' '/' '-' $'\\'; do
+        frames+=("$(terminal_truncate "$frame Checking $TERMINAL_PROGRESS_DONE/$TERMINAL_PROGRESS_TOTAL ${TERMINAL_PROGRESS_HOST-}" "$width")")
+    done
     TERMINAL_PROGRESS_ACTIVE=1
     printf '\033[?25l'
-    terminal_progress_frame
+    printf '\r\033[2K\033[2m%s\033[0m' "${frames[0]}"
     have sleep || return 0
     (
-        trap - EXIT
-        trap 'exit 0' INT TERM HUP
-        while sleep 0.12; do terminal_progress_frame; done
+        trap - EXIT INT TERM HUP
+        tick=1
+        while sleep 0.12; do
+            printf '\r\033[2K\033[2m%s\033[0m' "${frames[tick%4]}"
+            ((tick+=1))
+        done
     ) &
     TERMINAL_PROGRESS_PID=$!
 }
@@ -1552,7 +1553,7 @@ report_finish() {
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.7
+TOOL_VERSION=0.1.8
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2

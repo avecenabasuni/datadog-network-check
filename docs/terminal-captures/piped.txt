@@ -1,4 +1,4 @@
-DATADOG NETWORK PREFLIGHT  v0.1.7
+DATADOG NETWORK PREFLIGHT  v0.1.8
 
   Proxy: none
   Tools: curl dig nslookup openssl nc

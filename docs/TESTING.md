@@ -28,6 +28,8 @@ Terminal presentation tests check that an interactive run shows one compact endp
 
 Passing NTP rows omit the reply commentary at both 80 and 50 columns. WARN/FAIL NTP notes remain visible, while TXT/JSON retain the full response details and stratum.
 
+Recovered NTP warnings must explain the prior address failure in terminal, TXT and JSON while preserving the failed and successful attempts. Spinner tests repeatedly stop the helper near a frame boundary, require empty stderr, and check that each helper has exited. A timeout kills the test process group to avoid leaving a stuck helper.
+
 `tests/run.sh` runs ShellCheck when available and clearly reports when it is absent. It never installs packages. Bash syntax can also be checked with:
 
 ```bash

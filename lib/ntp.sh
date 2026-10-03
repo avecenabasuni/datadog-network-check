@@ -155,7 +155,9 @@ ntp_check() {
         E[ntp]=$result; E[ntp_detail]=$detail
         if [[ $result == PASS ]]; then
             E[ntp_ip]=$ip
-            if ((failed>unreachable)); then E[ntp]=WARN; add_note 'NTP replied after an earlier failed address; see probe history'; fi
+            if ((failed>unreachable)); then
+                E[ntp]=WARN; E[ntp_detail]='Reply received after an earlier address failed.'
+            fi
             break
         fi
         # KoD/unsynchronized servers replied: do not retry a rate-limited server.

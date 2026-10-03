@@ -1,4 +1,4 @@
- ▌ DATADOG NETWORK PREFLIGHT               v0.1.7
+ ▌ DATADOG NETWORK PREFLIGHT               v0.1.8
  ────────────────────────────────────────────────
  eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datado…
 
