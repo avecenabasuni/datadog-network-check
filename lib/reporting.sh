@@ -269,8 +269,11 @@ terminal_category_start() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    local proxy='none'
+    local proxy='none' auth='off'
     ((PROXY_PRESENT)) && proxy='configured (values withheld)'
+    ((${PROXY_AUTH_PRESENT:-0}==0)) || auth=on
+    [[ ${ROUTE_MODE:-environment} != explicit ]] || proxy="explicit (Basic authentication: $auth)"
+    [[ ${ROUTE_MODE:-environment} != direct ]] || proxy='none (forced direct)'
     printf '\n'
     terminal_wrap "Proxy: $proxy" '  ' '  '
     terminal_wrap "Tools: ${available:-none}" '  ' '         '
@@ -287,6 +290,8 @@ terminal_stage() {
 }
 terminal_row() {
     local state=$1 host=$2 dns=$3 tcp=$4 tls=$5 http=$6 width host_width shown color='' stages status_field
+    local proxy_mode=0
+    [[ ${ROUTE_MODE:-environment} != explicit ]] || proxy_mode=1
     width=$(terminal_width)
     if ((width<64)); then
         shown=$(terminal_middle_host "$host" "$((width-9))")
@@ -295,14 +300,17 @@ terminal_row() {
         fi
         if [[ -n $color ]]; then printf '  %s%-6s\033[0m %s\n' "$color" "$state" "$shown"
         else printf '  %-6s %s\n' "$state" "$shown"; fi
-        terminal_wrap "DNS $dns  TCP $tcp  TLS $tls  HTTP $http" '        ' '        '
+        if ((proxy_mode)); then stages="PROXY $tcp  TLS $tls  HTTP $http"
+        else stages="DNS $dns  TCP $tcp  TLS $tls  HTTP $http"; fi
+        terminal_wrap "$stages" '        ' '        '
         [[ $shown == "$host" ]] || terminal_full_host_note "$host"
         return
     fi
     host_width=$((width-33))
     shown=$(terminal_middle_host "$host" "$host_width")
     printf -v status_field '%-6s' "$state"
-    printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"
+    if ((proxy_mode)); then printf -v stages '%9s %4s %s' "$tcp" "$tls" "$http"
+    else printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"; fi
     if terminal_color_enabled; then
         case $state in
             PASS) color=$'\033[32m';;
@@ -320,10 +328,14 @@ terminal_table_header() {
     local width host_width
     width=$(terminal_width)
     if ((width<64)); then
-        printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
+        printf '\n  STATUS DESTINATION\n'
+        if [[ ${ROUTE_MODE:-environment} == explicit ]]; then printf '        PROXY  TLS  HTTP\n'
+        else printf '        DNS  TCP  TLS  HTTP\n'; fi
     else
         host_width=$((width-33))
-        printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
+        if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+            printf '\n  %-6s %-*s %9s %4s %s\n' STATUS "$host_width" DESTINATION PROXY TLS HTTP
+        else printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP; fi
     fi
 }
 terminal_endpoint() {
@@ -352,6 +364,10 @@ terminal_endpoint() {
     dns_display=$(terminal_stage "${E[dns]}")
     tcp_display=$(terminal_stage "${E[tcp]}")
     tls_display=$(terminal_stage "${E[tls]}")
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        tcp_display=fail; [[ ${E[proxy_connect_status]} != 200 ]] || tcp_display=ok
+        tls_display=$(terminal_stage "${E[curl_tls]}")
+    fi
     terminal_row "$state" "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display"
     [[ $state != PASS ]] || return 0
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
@@ -376,6 +392,9 @@ terminal_endpoint() {
             terminal_note 'Redirect follow-up needs review. See TXT report.'
         fi
         return 0
+    fi
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        terminal_note "HTTPS: ${E[http_detail]}"; return 0
     fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
@@ -581,7 +600,7 @@ report_init() {
 endpoint_json() {
     local field first=1
     printf '{'
-    for field in id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
+    for field in selected_route id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
         ((first)) || printf ','; first=0
         json_string "$field"; printf ':'; json_string "${E[$field]-}"
     done
@@ -613,13 +632,13 @@ endpoint_json() {
     done
     printf '},"http_result":{"status":'; json_string "${E[http]}"
     printf ',"detail":'; json_string "${E[http_detail]}"
-    for field in http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
+    for field in proxy_connect_status http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[$field]}"
     done
     printf ',"attempts":'; json_lines "${E[http_attempts]}"
     printf ',"redirect_result":{"status":'; json_string "${E[redirect_http]}"
     printf ',"detail":'; json_string "${E[redirect_http_detail]}"
-    for field in http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
+    for field in proxy_connect_status http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[redirect_$field]}"
     done
     printf '}}}\n'
@@ -633,6 +652,8 @@ report_endpoint() {
     emit ''; emit "${E[hostname]} - $label"
     emit "Classification   ${E[classification]}"
     emit "Redirect host    ${E[redirect_host]:-none}"
+    emit "Selected route   ${E[selected_route]}"
+    [[ ${E[selected_route]} != explicit ]] || emit "Proxy CONNECT    ${E[proxy_connect_status]:-unavailable}"
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
@@ -676,7 +697,9 @@ report_endpoint() {
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
               value="${E[hostname]}:"
-              for field in dns tcp tls http ntp; do
+              local blocker_fields='dns tcp tls http ntp'
+              [[ ${E[selected_route]} != explicit ]] || blocker_fields=http
+              for field in $blocker_fields; do
                   [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
               done
               BLOCKERS+=("$value");;
@@ -696,7 +719,7 @@ report_finish() {
     local category line first=1 index=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
-    emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
+    emit ''; emit "Endpoint checks on selected route: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
     emit 'Manual requirements are listed below; they are not counted as passed checks.'
     emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
@@ -712,7 +735,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.4","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.5","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -720,6 +743,8 @@ report_finish() {
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
         printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
         printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
+        printf ',"route_mode":'; json_string "${ROUTE_MODE:-environment}"
+        printf ',"proxy_auth_present":%s' "${PROXY_AUTH_PRESENT:-0}"
         printf ',"ntp_target_source":'; json_string "$NTP_TARGET_SOURCE"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"

@@ -53,6 +53,7 @@ select_ntp_targets() {
     RECORDS=("${selected[@]}")
 }
 ntp_resolve() {
+    E[selected_route]=direct
     local host=$1 field
     E[ntp]=SKIPPED; E[ntp_detail]='Not attempted'
     for field in tcp tls http; do

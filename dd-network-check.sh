@@ -15,13 +15,15 @@ source "$ROOT/lib/ntp.sh" || exit 3
 source "$ROOT/lib/tls.sh" || exit 3
 # shellcheck source=lib/http.sh
 source "$ROOT/lib/http.sh" || exit 3
+# shellcheck source=lib/proxy.sh
+source "$ROOT/lib/proxy.sh" || exit 3
 # shellcheck source=lib/reporting.sh
 source "$ROOT/lib/reporting.sh" || exit 3
 
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.8
+TOOL_VERSION=0.2.0
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
@@ -29,19 +31,26 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
     SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    ROUTE_MODE=environment; PROXY_URL=''; PROXY_USER=''; PROXY_PASSWORD=''; PROXY_PASSWORD_STDIN=0; PROXY_AUTH_PRESENT=0
+    export -n PROXY_URL PROXY_USER PROXY_PASSWORD PROXY_HOST
     declare -ga NTP_HOSTS=()
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --ntp-host) (($#>=2)) || { error '--ntp-host requires a hostname or IP'; return 3; }; add_ntp_host "$2" || return 3; shift 2;;
+            --proxy) (($#>=2)) && [[ $ROUTE_MODE == environment ]] || { error 'Use one --proxy URL or --direct'; return 3; }; ROUTE_MODE=explicit; PROXY_URL=$2; shift 2;;
+            --direct) [[ $ROUTE_MODE == environment ]] || { error 'Use one --proxy URL or --direct'; return 3; }; ROUTE_MODE=direct; shift;;
+            --proxy-user) (($#>=2)) && [[ -n $2 ]] || { error '--proxy-user requires a username'; return 3; }; PROXY_USER=$2; shift 2;;
+            --proxy-password-stdin) PROXY_PASSWORD_STDIN=1; shift;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets). UDP/123.\n--quiet uses a compact terminal header. --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--proxy URL | --direct] [--proxy-user USER] [--proxy-password-stdin] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets). UDP/123.\n--proxy selects an HTTP/HTTPS forward proxy for all HTTPS tests. --direct bypasses environment proxies.\n--proxy-user enables Basic authentication. Password is read silently or with --proxy-password-stdin and --site.\n--quiet uses a compact terminal header. --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
-    [[ $(uname -s) == Linux ]] || { error 'v0.1 supports Linux only'; return 3; }
+    ((PROXY_PASSWORD_STDIN==0)) || [[ -n $SITE ]] || { error '--proxy-password-stdin requires --site'; return 3; }
+    [[ $(uname -s) == Linux ]] || { error 'Linux only'; return 3; }
     for dep in curl awk sed grep head tee wc tr date hostname mktemp mkdir mv rm rmdir; do
         have "$dep" || { error "Required utility unavailable: $dep"; missing=1; }
     done
@@ -66,6 +75,7 @@ main() {
         printf '\n'
     fi
     [[ $SITE =~ ^[a-z0-9-]+$ && -n ${SITE_LABELS[$SITE]-} ]] || { error 'Unknown Datadog site'; return 3; }
+    proxy_configure || return 3
     MACHINE=$(hostname | clean); TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | clean)
     OS_NAME=${OS_NAME:-Linux}
@@ -89,7 +99,8 @@ main() {
     done
     DEPENDENCY_JSON+='}'
     emit ''; emit 'Proxy Environment'; proxy_snapshot
-    emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
+    emit "Selected HTTPS route: $ROUTE_MODE. Proxy authentication present: $PROXY_AUTH_PRESENT"
+    emit 'DNS/TCP/OpenSSL are direct diagnostics. Explicit proxy determines HTTPS readiness and overrides environment exclusions.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     emit "NTP targets: $NTP_TARGET_SOURCE; direct UDP/123; HTTP proxy settings do not apply."
     [[ $NTP_TARGET_SOURCE != documented-public-fallback ]] || emit 'Agent may select private cloud or configured NTP servers; use --ntp-host to test those instead.'

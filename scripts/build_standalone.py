@@ -8,7 +8,7 @@ import sys
 
 ROOT = Path(__file__).resolve().parents[1]
 TARGET = ROOT / 'dist/dd-network-check.sh'
-MAX_BYTES = 100000  # Stay below Linux's per-argument limit for bash -c.
+MAX_BYTES = 120000  # Stay below Linux's per-argument limit for bash -c.
 
 
 def replace_once(text, old, new):
@@ -32,7 +32,7 @@ def build():
         'ROOT=$(pwd -P) || exit 3')
     pattern = r'# shellcheck source=(lib/[a-z]+\.sh)\nsource "\$ROOT/\1" \|\| exit 3'
     modules = re.findall(pattern, entry)
-    if modules != ['lib/utils.sh', 'lib/dns.sh', 'lib/tcp.sh', 'lib/ntp.sh', 'lib/tls.sh', 'lib/http.sh', 'lib/reporting.sh']:
+    if modules != ['lib/utils.sh', 'lib/dns.sh', 'lib/tcp.sh', 'lib/ntp.sh', 'lib/tls.sh', 'lib/http.sh', 'lib/proxy.sh', 'lib/reporting.sh']:
         raise ValueError('Entry-point module list changed; review the distribution builder')
 
     def inline(match):

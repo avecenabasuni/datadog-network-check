@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # E is a caller-owned associative array; its keys and indexes are not arithmetic variables.
 # shellcheck disable=SC2154,SC2004
-# Never use --fail, --insecure, credentials, verbose traces, or a user's curlrc.
+# Never use --fail, --insecure, verbose traces, or a user's curlrc.
 # Body/headers stay in bounded memory and are discarded after classification.
 curl_probe() (
     # Prevent an inherited debug setting from writing TLS session secrets.
@@ -20,11 +20,11 @@ curl_probe() (
             printf '\nDD_PREFLIGHT_SAMPLE_BYTES=%s\n' "$bytes" >&3
         )
         reader=$!
-        metadata=$(curl --disable --silent --show-error --include "${redirect_options[@]}" \
+        metadata=$(curl_route --silent --show-error --include "${redirect_options[@]}" \
             --proto '=https' --proto-redir '=https' --connect-timeout "$TCP_TIMEOUT" \
             --max-time "$HTTP_TIMEOUT" --max-filesize 65536 --range 0-32767 \
             --output /dev/fd/4 --user-agent "dd-network-preflight/$TOOL_VERSION" \
-            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n%{time_namelookup}\n%{time_connect}\n%{time_appconnect}\n%{time_starttransfer}\n%{time_total}\n' "$1" 2>/dev/null)
+            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n%{time_namelookup}\n%{time_connect}\n%{time_appconnect}\n%{time_starttransfer}\n%{time_total}\n%{http_connect}\n' "$1" 2>/dev/null)
         rc=$?
         exec 4>&-
         # Finish the sample before emitting metadata, including on small bodies.
@@ -57,7 +57,7 @@ expected_redirect_host() {
 }
 http_attempt() {
     local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes='' field i
-    for field in http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
+    for field in proxy_connect_status http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
     E[curl_tls]=SKIPPED; E[redirect_count]=0
     output=$({ curl_probe "https://$host:$port$path" "${2:-origin}"; printf 'DD_PREFLIGHT_EXIT=%s\n' "$?"; } | tr -d '\000')
     if [[ $output == *DD_PREFLIGHT_META* ]]; then
@@ -68,6 +68,7 @@ http_attempt() {
         final_ip=${fields[2]-}; is_ip "$final_ip" && E[remote_ip]=$final_ip
         redirect=${fields[3]-0}; [[ $redirect =~ ^[0-9]+$ ]] && E[redirect_count]=$redirect
         verify=${fields[4]-}
+        [[ ! ${fields[10]-} =~ ^[0-9]{3}$ ]] || E[proxy_connect_status]=${fields[10]}
         i=5
         for field in time_namelookup time_connect time_appconnect time_starttransfer time_total; do
             [[ ! ${fields[i]-} =~ ^[0-9]+\.[0-9]+$ ]] || E[$field]=${fields[i]}
@@ -123,10 +124,27 @@ http_attempt() {
         fi
         if ((10#${E[http_status]}>=500)) || [[ ${E[http_status]} == 407 ]]; then E[http]=WARN; add_note 'Service/proxy error response requires review'; fi
     fi
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        E[remote_ip]='' # curl's peer is the proxy, not the destination.
+        if [[ ${E[proxy_connect_status]} != 200 ]]; then
+            E[http]=FAIL
+            [[ ${E[curl_tls]} == FAIL ]] || E[curl_tls]=SKIPPED
+            case ${E[proxy_connect_status]} in
+                407) E[http_detail]='Proxy authentication rejected (CONNECT 407)';;
+                [1-5][0-9][0-9]) E[http_detail]="Proxy CONNECT rejected (${E[proxy_connect_status]})";;
+                *) [[ ${E[http_detail]} != *'environment route'* ]] || E[http_detail]='Proxy CONNECT success not established';;
+            esac
+        elif [[ ${E[http]} == PASS ]]; then
+            E[http_detail]='Endpoint reachable through explicit proxy. Destination TLS verified.'
+        fi
+    elif [[ ${ROUTE_MODE:-environment} == direct && ${E[http]} == PASS ]]; then
+        E[http_detail]='Endpoint reachable on forced direct route. Destination TLS verified.'
+    fi
     # Only server/via headers; no cookies, authorization, locations, or raw body saved.
     body=${output%%DD_PREFLIGHT_META*}
     E[server]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^server:/{v=substr($0,8)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
     E[via]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^via:/{v=substr($0,5)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
+    E[server]=$(proxy_redact "${E[server]}"); E[via]=$(proxy_redact "${E[via]}")
     low=${body,,}; vendor=''; generic=0
     case $low in *fortigate*|*fortinet*) vendor=Fortinet;; *zscaler*) vendor=Zscaler;; *'palo alto'*) vendor='Palo Alto';; esac
     case $low in *blocked*|*'web filter'*|*'access denied'*) generic=1;; esac
@@ -149,9 +167,10 @@ http_check() {
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
-        summary="origin attempt $attempt: ${E[http]}, curl=${E[curl_exit]:-unknown}, HTTP=${E[http_status]:-none}, IP=${E[remote_ip]:-unknown}, TCP=${E[time_connect]:-unknown}s, TLS=${E[time_appconnect]:-unknown}s, first_byte=${E[time_starttransfer]:-unknown}s, total=${E[time_total]:-unknown}s; ${E[http_detail]}"
+        summary="origin attempt $attempt: ${E[http]}, curl=${E[curl_exit]:-unknown}, HTTP=${E[http_status]:-none}, CONNECT=${E[proxy_connect_status]:-none}, IP=${E[remote_ip]:-unknown}, TCP=${E[time_connect]:-unknown}s, TLS=${E[time_appconnect]:-unknown}s, first_byte=${E[time_starttransfer]:-unknown}s, total=${E[time_total]:-unknown}s; ${E[http_detail]}"
         E[http_attempts]+="$summary"$'\n'
         [[ ${E[http]} == FAIL ]] || break
+        [[ ${ROUTE_MODE:-environment} != explicit || ${E[proxy_connect_status]} == 000 || -z ${E[proxy_connect_status]} || ${E[proxy_connect_status]} == 200 ]] || break
         # No automatic retries for certificate failures or application responses.
         case ${E[curl_exit]} in 7|28|52|55|56) ;; *) break;; esac
     done
@@ -169,7 +188,7 @@ http_check() {
         local -A origin=()
         for key in "${!E[@]}"; do origin[$key]=${E[$key]}; done
         http_attempt "$host" follow
-        for key in http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
+        for key in proxy_connect_status http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
         origin[redirect_host]=$(redirect_host_from_url "${E[final_url]}")
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then

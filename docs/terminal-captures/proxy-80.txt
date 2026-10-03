@@ -8,44 +8,44 @@
   ────────────────────────────────────────────────────────────
   eminerba-lab · Ubuntu 22.04.5 LTS · US1 (datadoghq.com)
 
-  Proxy: none
+  Proxy: explicit (Basic authentication: on)
   Tools: curl dig nslookup openssl nc
   Scope: all destinations
   Agent: 7.84.1 (latest-release)
   NTP: documented public fallback (UDP/123)
 
-  STATUS DESTINATION                                      DNS  TCP  TLS HTTP
+  STATUS DESTINATION                                         PROXY  TLS HTTP
 
  INSTALLATION ─────────────────────────────────────────────────────────────────
-  PASS   install.datadoghq.com                             ok   ok   ok 200
-  PASS   apt.datadoghq.com                                 ok   ok   ok 206
+  PASS   install.datadoghq.com                                  ok   ok 200
+  PASS   apt.datadoghq.com                                      ok   ok 206
 
  AGENT ────────────────────────────────────────────────────────────────────────
-  PASS   7-84-1-app.agent.datadoghq.com                    ok   ok   ok 403
-  PASS   7-84-1-flare.agent.datadoghq.com                  ok   ok   ok 403
+  PASS   7-84-1-app.agent.datadoghq.com                         ok   ok 403
+  PASS   7-84-1-flare.agent.datadoghq.com                       ok   ok 403
 
  RUM (VM-side only) ───────────────────────────────────────────────────────────
-  PASS   browser-intake-datadoghq.com                      ok   ok   ok 403
-  PASS   sdk-configuration.browser-intake-datadoghq.com    ok   ok   ok 403
+  PASS   browser-intake-datadoghq.com                           ok   ok 403
+  PASS   sdk-configuration.browser-intake-datadoghq.com         ok   ok 403
 
  CONTAINER REGISTRIES ─────────────────────────────────────────────────────────
-  PASS   registry.datadoghq.com                            ok   ok   ok 302>200
-  PASS   gcr.io                                            ok   ok   ok 302>200
-  PASS   eu.gcr.io                                         ok   ok   ok 302>200
-  PASS   asia.gcr.io                                       ok   ok   ok 302>200
-  WARN   us-docker.pkg.dev                                 ok   ok   ok 302>200
+  PASS   registry.datadoghq.com                                 ok   ok 302>200
+  PASS   gcr.io                                                 ok   ok 302>200
+  PASS   eu.gcr.io                                              ok   ok 302>200
+  PASS   asia.gcr.io                                            ok   ok 302>200
+  WARN   us-docker.pkg.dev                                      ok   ok 302>200
        ↳ Unexpected redirect target. Possible proxy/captive portal block page.
-  PASS   public.ecr.aws                                    ok   ok   ok 401
+  PASS   public.ecr.aws                                         ok   ok 401
        ↳ Allow docs.datadoghq.com, accounts.google.com.
 
  NTP ──────────────────────────────────────────────────────────────────────────
-  PASS   0.datadog.pool.ntp.org                            ok   --   -- --
-  PASS   1.datadog.pool.ntp.org                            ok   --   -- --
-  PASS   2.datadog.pool.ntp.org                            ok   --   -- --
-  PASS   3.datadog.pool.ntp.org                            ok   --   -- --
+  PASS   0.datadog.pool.ntp.org                                 --   -- --
+  PASS   1.datadog.pool.ntp.org                                 --   -- --
+  PASS   2.datadog.pool.ntp.org                                 --   -- --
+  PASS   3.datadog.pool.ntp.org                                 --   -- --
 
  OTHER REQUIREMENTS ───────────────────────────────────────────────────────────
-  REVIEW destination-unspecified                           --   --   -- --
+  REVIEW destination-unspecified                                --   -- --
        ↳ Manual target. not tested.
 
 ╭─ SUMMARY ────────────────────────────────────────────────────────────────────╮

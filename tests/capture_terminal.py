@@ -31,6 +31,10 @@ add_row() {
     E[dns]=PASS E[tcp]=PASS E[tls]=PASS E[http]=PASS E[http_status]=$http
     E[notes]=$note E[redirect_host]=$redirect_host
     E[redirect_http_detail]='No reachable redirect response'
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        E[proxy_connect_status]=200 E[curl_tls]=PASS
+        E[dns]=FAIL E[tcp]=FAIL E[tls]=FAIL
+    fi
     [[ $host != *'{version}'* ]] || E[test_type]=version
     if [[ $classification == 'NOT DIRECTLY TESTABLE' ]]; then
         E[dns]='NOT DIRECTLY TESTABLE' E[tcp]='NOT DIRECTLY TESTABLE'
@@ -159,7 +163,16 @@ def main():
         if name == 'ascii-locale.txt':
             assert output.isascii()
         if name == 'piped.txt':
-            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.1.8\n')
+            assert output.startswith(b'DATADOG NETWORK PREFLIGHT  v0.2.0\n')
+        (OUT / name).write_bytes(output)
+        print(f'{name}: {len(output)} bytes')
+    for name, width in [('proxy-80.txt', '80'), ('proxy-50.txt', '50')]:
+        script = SCRIPT.replace('SITE=us1 MACHINE=', 'ROUTE_MODE=explicit PROXY_AUTH_PRESENT=1\nSITE=us1 MACHINE=')
+        output = render(True, {'NO_COLOR': '1', 'COLUMNS': width}, script)
+        assert b'PROXY' in output and b'Basic authentication: on' in output
+        assert b';' not in output
+        body = [line for line in output.decode().splitlines() if not line.startswith(('  Reports:', '  TXT ', '  JSON '))]
+        assert max(map(len, body)) <= int(width), name
         (OUT / name).write_bytes(output)
         print(f'{name}: {len(output)} bytes')
     interrupted = render(True, {}, INTERRUPT_SCRIPT, expected=3)

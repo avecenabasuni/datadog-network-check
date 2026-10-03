@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # GENERATED FILE: edit source modules/manifests, then run scripts/build_standalone.py.
 # Includes all runtime modules and both reviewed manifests. No runtime extraction.
-# source_sha256=8c437ac7709f242d50454424b23615b1bf40296aa9888429424b71def97e51a9
+# source_sha256=ca11369f984c01db82e13c8913d5d60057a4d90254e8a568e9fc288f7f90dc85
 set -uo pipefail
 
 if ((BASH_VERSINFO[0]<4)); then printf 'Bash 4 or later is required.\n' >&2; exit 3; fi
@@ -54,7 +54,7 @@ is_ip() {
 }
 add_note() { E[notes]+="${E[notes]:+; }$*"; }
 reset_result() {
-    E=([dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
+    E=([selected_route]=${ROUTE_MODE:-environment} [proxy_connect_status]='' [redirect_proxy_connect_status]='' [dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
        [ips]='' [cnames]='' [tcp]=SKIPPED [tcp_detail]='DNS dependency unavailable'
        [tcp_attempts]='' [tcp_ip]='' [tls]=SKIPPED [tls_detail]='TCP dependency unavailable'
        [tls_attempts]='' [tls_ip]='' [tls_exit]=''
@@ -83,6 +83,7 @@ proxy_snapshot() {
         PROXY_JSON+="\"$key\":$(json_string "$state")"
     done
     PROXY_JSON+='}'
+    case ${ROUTE_MODE:-environment} in explicit) PROXY_PRESENT=1;; direct) PROXY_PRESENT=0;; esac
 }
 load_sites() {
     local line code label site rum extra n=0
@@ -240,7 +241,7 @@ detect_agent_version() {
     fi
     # GitHub's latest-release redirect selects a stable release without parsing
     # a changelog or requiring jq/Python. Only accept an exact official tag URL.
-    release_url=$(SSLKEYLOGFILE= curl --disable --silent --show-error --fail --head --location \
+    release_url=$(curl_route --silent --show-error --fail --head --location \
         --proto '=https' --proto-redir '=https' --max-redirs 3 \
         --connect-timeout 5 --max-time 12 --output /dev/null --write-out '%{url_effective}' \
         'https://github.com/DataDog/datadog-agent/releases/latest' 2>/dev/null)
@@ -259,7 +260,8 @@ classify_result() {
     local field fields='dns cname tcp tls http'
     if [[ ${E[classification]} == 'NOT APPLICABLE' ]]; then E[status]='NOT APPLICABLE'; E[impact]=PASS; return; fi
     E[status]=PASS
-    [[ ${E[test_type]-} != ntp ]] || fields='dns ntp'
+    if [[ ${E[test_type]-} == ntp ]]; then fields='dns ntp'
+    elif [[ ${ROUTE_MODE:-environment} == explicit ]]; then fields=http; fi
     for field in $fields; do
         case ${E[$field]} in
             FAIL) E[status]=FAIL;;
@@ -268,7 +270,7 @@ classify_result() {
     done
     E[impact]=${E[status]}
     if [[ $requirement == informational && ${E[impact]} == FAIL ]]; then E[impact]=WARN; fi
-    if [[ ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
+    if [[ ${ROUTE_MODE:-environment} == environment && ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
         E[impact]=WARN; add_note 'Environment-route HTTPS succeeded despite direct-path failures; proxy/NO_PROXY routing and Agent proxy configuration require review'
     fi
 }
@@ -425,6 +427,7 @@ select_ntp_targets() {
     RECORDS=("${selected[@]}")
 }
 ntp_resolve() {
+    E[selected_route]=direct
     local host=$1 field
     E[ntp]=SKIPPED; E[ntp_detail]='Not attempted'
     for field in tcp tls http; do
@@ -607,7 +610,7 @@ tls_check() {
 #!/usr/bin/env bash
 # E is a caller-owned associative array; its keys and indexes are not arithmetic variables.
 # shellcheck disable=SC2154,SC2004
-# Never use --fail, --insecure, credentials, verbose traces, or a user's curlrc.
+# Never use --fail, --insecure, verbose traces, or a user's curlrc.
 # Body/headers stay in bounded memory and are discarded after classification.
 curl_probe() (
     # Prevent an inherited debug setting from writing TLS session secrets.
@@ -626,11 +629,11 @@ curl_probe() (
             printf '\nDD_PREFLIGHT_SAMPLE_BYTES=%s\n' "$bytes" >&3
         )
         reader=$!
-        metadata=$(curl --disable --silent --show-error --include "${redirect_options[@]}" \
+        metadata=$(curl_route --silent --show-error --include "${redirect_options[@]}" \
             --proto '=https' --proto-redir '=https' --connect-timeout "$TCP_TIMEOUT" \
             --max-time "$HTTP_TIMEOUT" --max-filesize 65536 --range 0-32767 \
             --output /dev/fd/4 --user-agent "dd-network-preflight/$TOOL_VERSION" \
-            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n%{time_namelookup}\n%{time_connect}\n%{time_appconnect}\n%{time_starttransfer}\n%{time_total}\n' "$1" 2>/dev/null)
+            --write-out $'\nDD_PREFLIGHT_META\n%{http_code}\n%{url_effective}\n%{remote_ip}\n%{num_redirects}\n%{ssl_verify_result}\n%{time_namelookup}\n%{time_connect}\n%{time_appconnect}\n%{time_starttransfer}\n%{time_total}\n%{http_connect}\n' "$1" 2>/dev/null)
         rc=$?
         exec 4>&-
         # Finish the sample before emitting metadata, including on small bodies.
@@ -663,7 +666,7 @@ expected_redirect_host() {
 }
 http_attempt() {
     local host=$1 output meta rc='' status final_ip redirect verify body low vendor generic sampled=0 sample_bytes='' field i
-    for field in http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
+    for field in proxy_connect_status http_status final_url remote_ip server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do E[$field]=''; done
     E[curl_tls]=SKIPPED; E[redirect_count]=0
     output=$({ curl_probe "https://$host:$port$path" "${2:-origin}"; printf 'DD_PREFLIGHT_EXIT=%s\n' "$?"; } | tr -d '\000')
     if [[ $output == *DD_PREFLIGHT_META* ]]; then
@@ -674,6 +677,7 @@ http_attempt() {
         final_ip=${fields[2]-}; is_ip "$final_ip" && E[remote_ip]=$final_ip
         redirect=${fields[3]-0}; [[ $redirect =~ ^[0-9]+$ ]] && E[redirect_count]=$redirect
         verify=${fields[4]-}
+        [[ ! ${fields[10]-} =~ ^[0-9]{3}$ ]] || E[proxy_connect_status]=${fields[10]}
         i=5
         for field in time_namelookup time_connect time_appconnect time_starttransfer time_total; do
             [[ ! ${fields[i]-} =~ ^[0-9]+\.[0-9]+$ ]] || E[$field]=${fields[i]}
@@ -729,10 +733,27 @@ http_attempt() {
         fi
         if ((10#${E[http_status]}>=500)) || [[ ${E[http_status]} == 407 ]]; then E[http]=WARN; add_note 'Service/proxy error response requires review'; fi
     fi
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        E[remote_ip]='' # curl's peer is the proxy, not the destination.
+        if [[ ${E[proxy_connect_status]} != 200 ]]; then
+            E[http]=FAIL
+            [[ ${E[curl_tls]} == FAIL ]] || E[curl_tls]=SKIPPED
+            case ${E[proxy_connect_status]} in
+                407) E[http_detail]='Proxy authentication rejected (CONNECT 407)';;
+                [1-5][0-9][0-9]) E[http_detail]="Proxy CONNECT rejected (${E[proxy_connect_status]})";;
+                *) [[ ${E[http_detail]} != *'environment route'* ]] || E[http_detail]='Proxy CONNECT success not established';;
+            esac
+        elif [[ ${E[http]} == PASS ]]; then
+            E[http_detail]='Endpoint reachable through explicit proxy. Destination TLS verified.'
+        fi
+    elif [[ ${ROUTE_MODE:-environment} == direct && ${E[http]} == PASS ]]; then
+        E[http_detail]='Endpoint reachable on forced direct route. Destination TLS verified.'
+    fi
     # Only server/via headers; no cookies, authorization, locations, or raw body saved.
     body=${output%%DD_PREFLIGHT_META*}
     E[server]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^server:/{v=substr($0,8)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
     E[via]=$(awk 'BEGIN{IGNORECASE=1} /^HTTP\//{h=1;v=""} h && tolower($0) ~ /^via:/{v=substr($0,5)} /^\r?$/{h=0} END{print v}' <<< "$body" | clean)
+    E[server]=$(proxy_redact "${E[server]}"); E[via]=$(proxy_redact "${E[via]}")
     low=${body,,}; vendor=''; generic=0
     case $low in *fortigate*|*fortinet*) vendor=Fortinet;; *zscaler*) vendor=Zscaler;; *'palo alto'*) vendor='Palo Alto';; esac
     case $low in *blocked*|*'web filter'*|*'access denied'*) generic=1;; esac
@@ -755,9 +776,10 @@ http_check() {
     E[http_attempts]=''
     for ((attempt=1; attempt<=HTTP_MAX_ATTEMPTS; attempt++)); do
         http_attempt "$host" origin
-        summary="origin attempt $attempt: ${E[http]}, curl=${E[curl_exit]:-unknown}, HTTP=${E[http_status]:-none}, IP=${E[remote_ip]:-unknown}, TCP=${E[time_connect]:-unknown}s, TLS=${E[time_appconnect]:-unknown}s, first_byte=${E[time_starttransfer]:-unknown}s, total=${E[time_total]:-unknown}s; ${E[http_detail]}"
+        summary="origin attempt $attempt: ${E[http]}, curl=${E[curl_exit]:-unknown}, HTTP=${E[http_status]:-none}, CONNECT=${E[proxy_connect_status]:-none}, IP=${E[remote_ip]:-unknown}, TCP=${E[time_connect]:-unknown}s, TLS=${E[time_appconnect]:-unknown}s, first_byte=${E[time_starttransfer]:-unknown}s, total=${E[time_total]:-unknown}s; ${E[http_detail]}"
         E[http_attempts]+="$summary"$'\n'
         [[ ${E[http]} == FAIL ]] || break
+        [[ ${ROUTE_MODE:-environment} != explicit || ${E[proxy_connect_status]} == 000 || -z ${E[proxy_connect_status]} || ${E[proxy_connect_status]} == 200 ]] || break
         # No automatic retries for certificate failures or application responses.
         case ${E[curl_exit]} in 7|28|52|55|56) ;; *) break;; esac
     done
@@ -775,7 +797,7 @@ http_check() {
         local -A origin=()
         for key in "${!E[@]}"; do origin[$key]=${E[$key]}; done
         http_attempt "$host" follow
-        for key in http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
+        for key in proxy_connect_status http http_detail http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do origin[redirect_$key]=${E[$key]}; done
         origin[redirect_host]=$(redirect_host_from_url "${E[final_url]}")
         origin[notes]=${E[notes]}
         if [[ ${E[http]} == FAIL || ${E[http]} == SKIPPED ]]; then
@@ -803,6 +825,90 @@ http_check() {
     fi
 }
 # END GENERATED MODULE: lib/http.sh
+# BEGIN GENERATED MODULE: lib/proxy.sh
+#!/usr/bin/env bash
+# Route settings are process-local. Never persist or print their values.
+# shellcheck disable=SC2154
+proxy_url_valid() {
+    local authority host number
+    [[ $1 =~ ^https?://([^/[:space:]@?#]+)$ ]] || return 1
+    authority=${BASH_REMATCH[1]}
+    if [[ $authority =~ ^\[([0-9a-fA-F:]+)\]:([0-9]+)$ ]]; then
+        host=${BASH_REMATCH[1]}; number=${BASH_REMATCH[2]}
+        valid_ntp_host "$host" || return 1
+    elif [[ $authority =~ ^([a-zA-Z0-9._-]+):([0-9]+)$ ]]; then
+        host=${BASH_REMATCH[1]}; number=${BASH_REMATCH[2]}
+        valid_ntp_host "$host" || return 1
+    else return 1; fi
+    [[ ${#number} -le 5 ]] && ((10#$number>0 && 10#$number<=65535))
+}
+proxy_redact() {
+    local text=$1 secret
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        for secret in "${PROXY_PASSWORD-}" "${PROXY_USER-}" "${PROXY_URL-}" "${PROXY_HOST-}"; do
+            [[ -z $secret ]] || text=${text//"$secret"/[withheld]}
+        done
+    fi
+    printf '%s' "$text"
+}
+proxy_read_password() {
+    if ((PROXY_PASSWORD_STDIN)); then
+        IFS= read -r PROXY_PASSWORD || [[ -n $PROXY_PASSWORD ]] || { error 'Cannot read proxy password from stdin'; return 1; }
+    elif [[ -t 0 ]]; then
+        printf 'Proxy password: '
+        IFS= read -rs PROXY_PASSWORD || { printf '\n'; return 1; }
+        printf '\n'
+    else error 'Use --proxy-password-stdin for unattended authentication'; return 1; fi
+}
+proxy_configure() {
+    local choice auth
+    [[ $ROUTE_MODE != explicit || -n $PROXY_URL ]] || { error '--proxy requires a URL'; return 1; }
+    if [[ $ROUTE_MODE == environment && -t 0 && -t 1 ]]; then
+        printf '\n[ HTTPS ROUTE ]\n  1) Current environment (default)\n  2) Custom proxy\n  3) Direct\nChoice [1]: '
+        IFS= read -r choice || return 1
+        case ${choice:-1} in
+            1) :;;
+            2) ROUTE_MODE=explicit; printf 'Proxy URL (http[s]://host:port): '; IFS= read -r PROXY_URL || return 1
+               printf 'Basic authentication? [y/N]: '; IFS= read -r auth || return 1
+               case ${auth,,} in y|yes) printf 'Proxy username: '; IFS= read -r PROXY_USER && [[ -n $PROXY_USER ]] || { error 'Proxy username is required'; return 1; };; ''|n|no) :;; *) error 'Invalid authentication choice'; return 1;; esac;;
+            3) ROUTE_MODE=direct;;
+            *) error 'Invalid HTTPS route choice'; return 1;;
+        esac
+    fi
+    if [[ $ROUTE_MODE == explicit ]]; then
+        proxy_url_valid "$PROXY_URL" || { error 'Invalid proxy URL. Use http[s]://host:port without credentials or a path'; return 1; }
+        PROXY_HOST=${PROXY_URL#*://}; PROXY_HOST=${PROXY_HOST%:*}; PROXY_HOST=${PROXY_HOST#[}; PROXY_HOST=${PROXY_HOST%]}
+    fi
+    if [[ -n $PROXY_USER ]] || ((PROXY_PASSWORD_STDIN)); then
+        [[ $ROUTE_MODE == explicit && -n $PROXY_USER && $PROXY_USER != *:* && ! $PROXY_USER =~ [[:cntrl:]] ]] || { error 'Proxy authentication requires --proxy and a valid username'; return 1; }
+        proxy_read_password || return 1
+        [[ ! $PROXY_PASSWORD =~ [[:cntrl:]] ]] || { error 'Invalid proxy password'; return 1; }
+        PROXY_AUTH_PRESENT=1
+    fi
+}
+curl_config_string() {
+    local value=${2//\\/\\\\}
+    value=${value//\"/\\\"}
+    printf '%s = "%s"\n' "$1" "$value"
+}
+curl_route() (
+    unset SSLKEYLOGFILE
+    export -n PROXY_URL PROXY_USER PROXY_PASSWORD PROXY_HOST
+    if [[ ${ROUTE_MODE:-environment} == environment ]]; then curl --disable "$@"; exit $?; fi
+    unset HTTP_PROXY HTTPS_PROXY ALL_PROXY NO_PROXY http_proxy https_proxy all_proxy no_proxy
+    {
+        if [[ $ROUTE_MODE == explicit ]]; then
+            curl_config_string proxy "$PROXY_URL"
+            curl_config_string noproxy ''
+            if ((PROXY_AUTH_PRESENT)); then
+                printf 'proxy-basic\n'
+                curl_config_string proxy-user "$PROXY_USER:$PROXY_PASSWORD"
+            fi
+        else curl_config_string proxy ''; curl_config_string noproxy '*'; fi
+    } | curl --disable --config - "$@"
+    exit "${PIPESTATUS[1]}"
+)
+# END GENERATED MODULE: lib/proxy.sh
 # BEGIN GENERATED MODULE: lib/reporting.sh
 #!/usr/bin/env bash
 # E and manifest fields are supplied by the caller; associative indexes are strings.
@@ -1075,8 +1181,11 @@ terminal_category_start() {
 }
 terminal_intro() {
     local available=$1 unavailable=$2
-    local proxy='none'
+    local proxy='none' auth='off'
     ((PROXY_PRESENT)) && proxy='configured (values withheld)'
+    ((${PROXY_AUTH_PRESENT:-0}==0)) || auth=on
+    [[ ${ROUTE_MODE:-environment} != explicit ]] || proxy="explicit (Basic authentication: $auth)"
+    [[ ${ROUTE_MODE:-environment} != direct ]] || proxy='none (forced direct)'
     printf '\n'
     terminal_wrap "Proxy: $proxy" '  ' '  '
     terminal_wrap "Tools: ${available:-none}" '  ' '         '
@@ -1093,6 +1202,8 @@ terminal_stage() {
 }
 terminal_row() {
     local state=$1 host=$2 dns=$3 tcp=$4 tls=$5 http=$6 width host_width shown color='' stages status_field
+    local proxy_mode=0
+    [[ ${ROUTE_MODE:-environment} != explicit ]] || proxy_mode=1
     width=$(terminal_width)
     if ((width<64)); then
         shown=$(terminal_middle_host "$host" "$((width-9))")
@@ -1101,14 +1212,17 @@ terminal_row() {
         fi
         if [[ -n $color ]]; then printf '  %s%-6s\033[0m %s\n' "$color" "$state" "$shown"
         else printf '  %-6s %s\n' "$state" "$shown"; fi
-        terminal_wrap "DNS $dns  TCP $tcp  TLS $tls  HTTP $http" '        ' '        '
+        if ((proxy_mode)); then stages="PROXY $tcp  TLS $tls  HTTP $http"
+        else stages="DNS $dns  TCP $tcp  TLS $tls  HTTP $http"; fi
+        terminal_wrap "$stages" '        ' '        '
         [[ $shown == "$host" ]] || terminal_full_host_note "$host"
         return
     fi
     host_width=$((width-33))
     shown=$(terminal_middle_host "$host" "$host_width")
     printf -v status_field '%-6s' "$state"
-    printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"
+    if ((proxy_mode)); then printf -v stages '%9s %4s %s' "$tcp" "$tls" "$http"
+    else printf -v stages '%4s %4s %4s %s' "$dns" "$tcp" "$tls" "$http"; fi
     if terminal_color_enabled; then
         case $state in
             PASS) color=$'\033[32m';;
@@ -1126,10 +1240,14 @@ terminal_table_header() {
     local width host_width
     width=$(terminal_width)
     if ((width<64)); then
-        printf '\n  STATUS DESTINATION\n        DNS  TCP  TLS  HTTP\n'
+        printf '\n  STATUS DESTINATION\n'
+        if [[ ${ROUTE_MODE:-environment} == explicit ]]; then printf '        PROXY  TLS  HTTP\n'
+        else printf '        DNS  TCP  TLS  HTTP\n'; fi
     else
         host_width=$((width-33))
-        printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP
+        if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+            printf '\n  %-6s %-*s %9s %4s %s\n' STATUS "$host_width" DESTINATION PROXY TLS HTTP
+        else printf '\n  %-6s %-*s %4s %4s %4s %s\n' STATUS "$host_width" DESTINATION DNS TCP TLS HTTP; fi
     fi
 }
 terminal_endpoint() {
@@ -1158,6 +1276,10 @@ terminal_endpoint() {
     dns_display=$(terminal_stage "${E[dns]}")
     tcp_display=$(terminal_stage "${E[tcp]}")
     tls_display=$(terminal_stage "${E[tls]}")
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        tcp_display=fail; [[ ${E[proxy_connect_status]} != 200 ]] || tcp_display=ok
+        tls_display=$(terminal_stage "${E[curl_tls]}")
+    fi
     terminal_row "$state" "${E[hostname]}" "$dns_display" "$tcp_display" "$tls_display" "$http_display"
     [[ $state != PASS ]] || return 0
     if [[ -n ${TERMINAL_CURRENT_INDEX-} ]]; then
@@ -1182,6 +1304,9 @@ terminal_endpoint() {
             terminal_note 'Redirect follow-up needs review. See TXT report.'
         fi
         return 0
+    fi
+    if [[ ${ROUTE_MODE:-environment} == explicit ]]; then
+        terminal_note "HTTPS: ${E[http_detail]}"; return 0
     fi
     for field in dns cname tcp tls http; do
         [[ ${E[$field]} == PASS ]] && continue
@@ -1387,7 +1512,7 @@ report_init() {
 endpoint_json() {
     local field first=1
     printf '{'
-    for field in id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
+    for field in selected_route id category label hostname redirect_host port protocol applicable_os test_type requirement source status impact classification notes; do
         ((first)) || printf ','; first=0
         json_string "$field"; printf ':'; json_string "${E[$field]-}"
     done
@@ -1419,13 +1544,13 @@ endpoint_json() {
     done
     printf '},"http_result":{"status":'; json_string "${E[http]}"
     printf ',"detail":'; json_string "${E[http_detail]}"
-    for field in http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
+    for field in proxy_connect_status http_status final_url remote_ip redirect_count server via curl_exit time_namelookup time_connect time_appconnect time_starttransfer time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[$field]}"
     done
     printf ',"attempts":'; json_lines "${E[http_attempts]}"
     printf ',"redirect_result":{"status":'; json_string "${E[redirect_http]}"
     printf ',"detail":'; json_string "${E[redirect_http_detail]}"
-    for field in http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
+    for field in proxy_connect_status http_status final_url remote_ip curl_exit curl_tls redirect_count time_total; do
         printf ','; json_string "$field"; printf ':'; json_string "${E[redirect_$field]}"
     done
     printf '}}}\n'
@@ -1439,6 +1564,8 @@ report_endpoint() {
     emit ''; emit "${E[hostname]} - $label"
     emit "Classification   ${E[classification]}"
     emit "Redirect host    ${E[redirect_host]:-none}"
+    emit "Selected route   ${E[selected_route]}"
+    [[ ${E[selected_route]} != explicit ]] || emit "Proxy CONNECT    ${E[proxy_connect_status]:-unavailable}"
     for field in dns cname tcp tls http; do
         emit "$(printf '%-17s %s - %s' "${field^^}" "${E[$field]}" "${E[${field}_detail]}")"
     done
@@ -1482,7 +1609,9 @@ report_endpoint() {
     case ${E[impact]} in
         FAIL) CATEGORY_STATUS[$category]=FAIL; OVERALL=BLOCKED
               value="${E[hostname]}:"
-              for field in dns tcp tls http ntp; do
+              local blocker_fields='dns tcp tls http ntp'
+              [[ ${E[selected_route]} != explicit ]] || blocker_fields=http
+              for field in $blocker_fields; do
                   [[ ${E[$field]} != FAIL ]] || value+=" ${field^^}: ${E[${field}_detail]};"
               done
               BLOCKERS+=("$value");;
@@ -1502,7 +1631,7 @@ report_finish() {
     local category line first=1 index=0
     emit ''; emit '----------------------------------------'; emit 'SUMMARY'; emit '----------------------------------------'
     for category in "${CATEGORY_ORDER[@]}"; do emit "$(printf '%-26s %s' "$category" "${CATEGORY_STATUS[$category]}")"; done
-    emit ''; emit "Direct endpoint checks: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
+    emit ''; emit "Endpoint checks on selected route: $DIRECT_PASS PASS, $DIRECT_WARN WARN, $DIRECT_FAIL FAIL"
     emit 'Manual requirements are listed below; they are not counted as passed checks.'
     emit "Overall: $OVERALL"
     if ((${#BLOCKERS[@]})); then
@@ -1518,7 +1647,7 @@ report_finish() {
     emit 'This checks network prerequisites, not Agent configuration, API keys, instrumentation, permissions, or telemetry ingestion.'
     emit "TXT report: $REPORT_BASE.txt"; emit "JSON report: $REPORT_BASE.json"
     {
-        printf '{"schema_version":"1.4","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
+        printf '{"schema_version":"1.5","metadata":{"tool_version":'; json_string "$TOOL_VERSION"
         printf ',"timestamp":'; json_string "$TIMESTAMP"
         printf ',"hostname":'; json_string "$MACHINE"
         printf ',"os":'; json_string "$OS_NAME"
@@ -1526,6 +1655,8 @@ report_finish() {
         printf ',"agent_version":'; json_string "$AGENT_VERSION"
         printf ',"agent_version_source":'; json_string "$AGENT_VERSION_SOURCE"
         printf ',"agent_version_detail":'; json_string "$AGENT_VERSION_DETAIL"
+        printf ',"route_mode":'; json_string "${ROUTE_MODE:-environment}"
+        printf ',"proxy_auth_present":%s' "${PROXY_AUTH_PRESENT:-0}"
         printf ',"ntp_target_source":'; json_string "$NTP_TARGET_SOURCE"
         printf ',"scan_scope":"full","proxy_detection":%s,"dependencies":%s},' "$PROXY_JSON" "$DEPENDENCY_JSON"
         printf '"site":{"code":'; json_string "$SITE"
@@ -1553,7 +1684,7 @@ report_finish() {
 # Internal limits, seconds. No background probing or package installation.
 # MAX_IP_PROBES is consumed by sourced DNS/TCP modules.
 # shellcheck disable=SC2034
-TOOL_VERSION=0.1.8
+TOOL_VERSION=0.2.0
 DNS_TIMEOUT=5 TCP_TIMEOUT=5 TLS_TIMEOUT=8 HTTP_TIMEOUT=12 MAX_IP_PROBES=4
 NTP_TIMEOUT=5 NTP_MAX_IP_PROBES=2
 HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
@@ -1561,19 +1692,26 @@ HTTP_MAX_ATTEMPTS=2 TLS_MAX_ATTEMPTS=2
 main() {
     local choice i dep line host field state missing=0 available_tools='' unavailable_tools=''
     SITE=''; CLI_AGENT_VERSION=''; TERMINAL_NO_BANNER=0; TERMINAL_QUIET=0
+    ROUTE_MODE=environment; PROXY_URL=''; PROXY_USER=''; PROXY_PASSWORD=''; PROXY_PASSWORD_STDIN=0; PROXY_AUTH_PRESENT=0
+    export -n PROXY_URL PROXY_USER PROXY_PASSWORD PROXY_HOST
     declare -ga NTP_HOSTS=()
     while (($#)); do
         case $1 in
             --site) (($#>=2)) || { error '--site requires a value'; return 3; }; SITE=${2,,}; shift 2;;
             --agent-version) (($#>=2)) || { error '--agent-version requires X.Y.Z'; return 3; }; CLI_AGENT_VERSION=$2; shift 2;;
             --ntp-host) (($#>=2)) || { error '--ntp-host requires a hostname or IP'; return 3; }; add_ntp_host "$2" || return 3; shift 2;;
+            --proxy) (($#>=2)) && [[ $ROUTE_MODE == environment ]] || { error 'Use one --proxy URL or --direct'; return 3; }; ROUTE_MODE=explicit; PROXY_URL=$2; shift 2;;
+            --direct) [[ $ROUTE_MODE == environment ]] || { error 'Use one --proxy URL or --direct'; return 3; }; ROUTE_MODE=direct; shift;;
+            --proxy-user) (($#>=2)) && [[ -n $2 ]] || { error '--proxy-user requires a username'; return 3; }; PROXY_USER=$2; shift 2;;
+            --proxy-password-stdin) PROXY_PASSWORD_STDIN=1; shift;;
             --quiet) TERMINAL_QUIET=1; shift;;
             --no-banner) TERMINAL_NO_BANNER=1; shift;;
-            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets). UDP/123.\n--quiet uses a compact terminal header. --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
+            --help|-h) printf 'Usage: ./dd-network-check.sh [--site SITE] [--agent-version X.Y.Z] [--ntp-host HOST] [--proxy URL | --direct] [--proxy-user USER] [--proxy-password-stdin] [--quiet] [--no-banner]\nDefault: full scan using the latest stable Agent release and documented public NTP fallback pools.\n--agent-version overrides DD_PREFLIGHT_AGENT_VERSION and the GitHub latest-release lookup.\n--ntp-host replaces public NTP pools with an explicit customer target (repeat for up to 8 targets). UDP/123.\n--proxy selects an HTTP/HTTPS forward proxy for all HTTPS tests. --direct bypasses environment proxies.\n--proxy-user enables Basic authentication. Password is read silently or with --proxy-password-stdin and --site.\n--quiet uses a compact terminal header. --no-banner hides the header.\n--quick and --category are reserved for a future release.\n'; return 0;;
             *) error "Unsupported argument: $1"; return 3;;
         esac
     done
-    [[ $(uname -s) == Linux ]] || { error 'v0.1 supports Linux only'; return 3; }
+    ((PROXY_PASSWORD_STDIN==0)) || [[ -n $SITE ]] || { error '--proxy-password-stdin requires --site'; return 3; }
+    [[ $(uname -s) == Linux ]] || { error 'Linux only'; return 3; }
     for dep in curl awk sed grep head tee wc tr date hostname mktemp mkdir mv rm rmdir; do
         have "$dep" || { error "Required utility unavailable: $dep"; missing=1; }
     done
@@ -1598,6 +1736,7 @@ main() {
         printf '\n'
     fi
     [[ $SITE =~ ^[a-z0-9-]+$ && -n ${SITE_LABELS[$SITE]-} ]] || { error 'Unknown Datadog site'; return 3; }
+    proxy_configure || return 3
     MACHINE=$(hostname | clean); TIMESTAMP=$(date -u +%Y-%m-%dT%H:%M:%SZ)
     OS_NAME=$(sed -n 's/^PRETTY_NAME=//p' /etc/os-release 2>/dev/null | tr -d '"' | clean)
     OS_NAME=${OS_NAME:-Linux}
@@ -1621,7 +1760,8 @@ main() {
     done
     DEPENDENCY_JSON+='}'
     emit ''; emit 'Proxy Environment'; proxy_snapshot
-    emit 'Direct DNS/TCP/OpenSSL probes bypass proxies; curl honors existing HTTPS/ALL_PROXY and NO_PROXY settings.'
+    emit "Selected HTTPS route: $ROUTE_MODE. Proxy authentication present: $PROXY_AUTH_PRESENT"
+    emit 'DNS/TCP/OpenSSL are direct diagnostics. Explicit proxy determines HTTPS readiness and overrides environment exclusions.'
     emit 'Proxy values are withheld to avoid disclosing credentials. curl ignores uppercase HTTP_PROXY.'
     emit "NTP targets: $NTP_TARGET_SOURCE; direct UDP/123; HTTP proxy settings do not apply."
     [[ $NTP_TARGET_SOURCE != documented-public-fallback ]] || emit 'Agent may select private cloud or configured NTP servers; use --ntp-host to test those instead.'

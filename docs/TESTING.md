@@ -30,6 +30,10 @@ Passing NTP rows omit the reply commentary at both 80 and 50 columns. WARN/FAIL 
 
 Recovered NTP warnings must explain the prior address failure in terminal, TXT and JSON while preserving the failed and successful attempts. Spinner tests repeatedly stop the helper near a frame boundary, require empty stderr, and check that each helper has exited. A timeout kills the test process group to avoid leaving a stuck helper.
 
+`tests/test_proxy.py` covers CLI and URL validation, a PTY menu with a non-echoed password, config-pipe escaping, credentials absent from curl arguments/reports, conflicting environment settings, forced direct routing, selected-route readiness, and NTP independence. Real local servers exercise CONNECT, Basic authentication, HTTP and HTTPS proxies, redirect tunneling, and untrusted certificates. Test-only curl options trust a generated local CA for these fixtures, without changing system trust or runtime code. All sockets are loopback and no customer proxy is contacted. Eight captures now include custom proxy output at 80 and 50 columns.
+
+OpenSSL is a development dependency for generating the local proxy TLS fixture certificates. The loopback tunnel uses bounded SSL reads because TLS control records can make `select` readable without application data.
+
 `tests/run.sh` runs ShellCheck when available and clearly reports when it is absent. It never installs packages. Bash syntax can also be checked with:
 
 ```bash

@@ -25,7 +25,7 @@ class DistributionTests(unittest.TestCase):
         result = subprocess.run(['python3', '-B', 'scripts/build_standalone.py', '--check'],
                                 cwd=ROOT, capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertLess((ROOT / 'dist/dd-network-check.sh').stat().st_size, 100000)
+        self.assertLess((ROOT / 'dist/dd-network-check.sh').stat().st_size, 120000)
         result = subprocess.run(['bash', '-n', 'dist/dd-network-check.sh'], cwd=ROOT,
                                 capture_output=True, text=True, timeout=10)
         self.assertEqual(result.returncode, 0, result.stderr)

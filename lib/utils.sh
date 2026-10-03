@@ -44,7 +44,7 @@ is_ip() {
 }
 add_note() { E[notes]+="${E[notes]:+; }$*"; }
 reset_result() {
-    E=([dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
+    E=([selected_route]=${ROUTE_MODE:-environment} [proxy_connect_status]='' [redirect_proxy_connect_status]='' [dns]=SKIPPED [dns_detail]='Not attempted' [cname]=SKIPPED [cname_detail]='Not attempted'
        [ips]='' [cnames]='' [tcp]=SKIPPED [tcp_detail]='DNS dependency unavailable'
        [tcp_attempts]='' [tcp_ip]='' [tls]=SKIPPED [tls_detail]='TCP dependency unavailable'
        [tls_attempts]='' [tls_ip]='' [tls_exit]=''
@@ -73,6 +73,7 @@ proxy_snapshot() {
         PROXY_JSON+="\"$key\":$(json_string "$state")"
     done
     PROXY_JSON+='}'
+    case ${ROUTE_MODE:-environment} in explicit) PROXY_PRESENT=1;; direct) PROXY_PRESENT=0;; esac
 }
 load_sites() {
     local line code label site rum extra n=0
@@ -151,7 +152,7 @@ detect_agent_version() {
     fi
     # GitHub's latest-release redirect selects a stable release without parsing
     # a changelog or requiring jq/Python. Only accept an exact official tag URL.
-    release_url=$(SSLKEYLOGFILE= curl --disable --silent --show-error --fail --head --location \
+    release_url=$(curl_route --silent --show-error --fail --head --location \
         --proto '=https' --proto-redir '=https' --max-redirs 3 \
         --connect-timeout 5 --max-time 12 --output /dev/null --write-out '%{url_effective}' \
         'https://github.com/DataDog/datadog-agent/releases/latest' 2>/dev/null)
@@ -170,7 +171,8 @@ classify_result() {
     local field fields='dns cname tcp tls http'
     if [[ ${E[classification]} == 'NOT APPLICABLE' ]]; then E[status]='NOT APPLICABLE'; E[impact]=PASS; return; fi
     E[status]=PASS
-    [[ ${E[test_type]-} != ntp ]] || fields='dns ntp'
+    if [[ ${E[test_type]-} == ntp ]]; then fields='dns ntp'
+    elif [[ ${ROUTE_MODE:-environment} == explicit ]]; then fields=http; fi
     for field in $fields; do
         case ${E[$field]} in
             FAIL) E[status]=FAIL;;
@@ -179,7 +181,7 @@ classify_result() {
     done
     E[impact]=${E[status]}
     if [[ $requirement == informational && ${E[impact]} == FAIL ]]; then E[impact]=WARN; fi
-    if [[ ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
+    if [[ ${ROUTE_MODE:-environment} == environment && ${E[test_type]-} != ntp ]] && ((PROXY_PRESENT)) && [[ ${E[http]} == PASS || ${E[http]} == WARN ]] && [[ ${E[curl_tls]} == PASS && ${E[impact]} == FAIL ]]; then
         E[impact]=WARN; add_note 'Environment-route HTTPS succeeded despite direct-path failures; proxy/NO_PROXY routing and Agent proxy configuration require review'
     fi
 }

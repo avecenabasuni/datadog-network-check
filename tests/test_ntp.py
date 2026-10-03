@@ -268,7 +268,7 @@ esac
         self.assertEqual(report['endpoints'][1]['ntp_result']['status'], 'PASS')
         self.assertEqual(report['endpoints'][1]['ntp_result']['stratum'], '2')
         self.assertEqual(report['endpoints'][1]['http_result']['status'], 'NOT APPLICABLE')
-        self.assertEqual(report['schema_version'], '1.4')
+        self.assertEqual(report['schema_version'], '1.5')
         self.assertRegex(result.stdout, r'PASS\s+0\.datadog\.pool\.ntp\.org')
         self.assertNotIn('NTP UDP/123: PASS', result.stdout)
         txt = next((self.root / 'reports').glob('*.txt')).read_text()

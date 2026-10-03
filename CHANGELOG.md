@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Tool 0.2.0 adds interactive and CLI proxy routing for every HTTPS probe and Agent version lookup, optional Basic authentication via hidden prompt/stdin, and forced direct mode. Explicit proxy readiness uses CONNECT/TLS/HTTP evidence independently of direct diagnostics. JSON schema 1.5 adds route and CONNECT metadata. NTP remains direct. Proxy settings and credentials are process-local and withheld from reports. The standalone bundle budget is 120,000 bytes, below Linux's per-argument limit.
 - Tool 0.1.8 explains recovered NTP warnings as a reply after an earlier address failed, retaining each attempt and server metadata. Prepare spinner frames before starting the helper and reset its signal traps to default, avoiding a reproduced Bash trap parser error and shutdown hang during frame rendering.
 - Tool 0.1.7 shows successful NTP endpoints as compact rows, consistent with other passing endpoints. Only WARN/FAIL rows show an NTP note. TXT and JSON retain full reply details.
 - Tool 0.1.6 fixes terminal warning attribution: a successful registry redirect no longer hides TCP/DNS/TLS warnings, and origin retry warnings retain the endpoint row. All visible terminal text uses periods instead of semicolons. The TTY spinner now refreshes every 120 ms during foreground probes, is stopped and reaped before results, and restores the cursor on normal exit or interruption. Probes remain sequential in the parent shell.
